@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from invoice_processing.shared_libraries.alf_engine import ActionExecutor
+from po_processing.shared_libraries.alf_engine import ActionExecutor
 
 _TEST_VALUE = 42
 
@@ -31,11 +31,11 @@ class TestSetField:
         assert data["decision"] == "ACCEPT"
 
     def test_nested_overwrite(self):
-        data = {"Invoice Details": {"Invoice Status": "Rejected"}}
+        data = {"PO Details": {"PO Status": "Rejected"}}
         ActionExecutor._set_field(
-            data, "Invoice Details.Invoice Status", "Pending payment"
+            data, "PO Details.PO Status", "Pending payment"
         )
-        assert data["Invoice Details"]["Invoice Status"] == "Pending payment"
+        assert data["PO Details"]["PO Status"] == "Pending payment"
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ class TestOverrideDecision:
         result = ActionExecutor.execute(output, action)
         assert result["decision"] == "ACCEPT"
         assert (
-            result["Invoice Processing"]["Invoice Status"] == "Pending payment"
+            result["PO Processing"]["PO Status"] == "Pending payment"
         )
 
     def test_override_reject(self):
@@ -58,14 +58,14 @@ class TestOverrideDecision:
         action = {"type": "override_decision", "value": "REJECT"}
         result = ActionExecutor.execute(output, action)
         assert result["decision"] == "REJECT"
-        assert result["Invoice Processing"]["Invoice Status"] == "Rejected"
+        assert result["PO Processing"]["PO Status"] == "Rejected"
 
     def test_override_set_aside(self):
         output = {"decision": "REJECT"}
         action = {"type": "override_decision", "value": "SET_ASIDE"}
         result = ActionExecutor.execute(output, action)
         assert result["decision"] == "SET_ASIDE"
-        assert result["Invoice Processing"]["Invoice Status"] == "To verify"
+        assert result["PO Processing"]["PO Status"] == "To verify"
 
 
 # ---------------------------------------------------------------------------
@@ -85,14 +85,14 @@ class TestSetFieldAction:
         assert result["notes"] == "Updated by ALF"
 
     def test_set_nested_field(self):
-        output = {"invoice": {"vendor": "old"}}
+        output = {"po": {"vendor": "old"}}
         action = {
             "type": "set_nested_field",
-            "target": "invoice.vendor",
+            "target": "po.vendor",
             "value": "new",
         }
         result = ActionExecutor.execute(output, action)
-        assert result["invoice"]["vendor"] == "new"
+        assert result["po"]["vendor"] == "new"
 
 
 # ---------------------------------------------------------------------------
@@ -261,18 +261,18 @@ class TestRecalculateField:
 
     def test_invoice_total_minus_pretax(self):
         output = {
-            "Invoice Details": {
-                "Invoice Total": "1100.00",
+            "PO Details": {
+                "PO Total": "1100.00",
                 "Pretax total": "1000.00",
             }
         }
         action = {
             "type": "recalculate_field",
             "formula": "invoice_total_minus_pretax",
-            "target": "Invoice Details.GST Amount",
+            "target": "PO Details.GST Amount",
         }
         result = ActionExecutor.execute(output, action)
-        assert result["Invoice Details"]["GST Amount"] == "100.00"
+        assert result["PO Details"]["GST Amount"] == "100.00"
 
 
 # ---------------------------------------------------------------------------

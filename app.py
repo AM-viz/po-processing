@@ -4,7 +4,7 @@ Dash application entrypoint for the document-processing agent.
 Runs locally (``python app.py``) and as a Databricks App. Storage is rooted at
 ``VOLUME_BASE`` (a Databricks Volume) when set, else the package-local ``data``
 directory. Inference is served by AWS Bedrock (see
-``invoice_processing/core/llm_client.py``).
+``po_processing/core/llm_client.py``).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def _make_background_manager():
         cache_dir = os.getenv("DASH_CACHE_DIR", "/tmp/po_dash_cache")
         cache = diskcache.Cache(cache_dir)
         return dash.DiskcacheManager(cache)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 

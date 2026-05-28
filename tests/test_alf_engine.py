@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from invoice_processing.shared_libraries.alf_engine import (
+from po_processing.shared_libraries.alf_engine import (
     SUPPORTED_ACTION_TYPES,
     SUPPORTED_CONDITION_OPERATORS,
     ALFEngine,

@@ -1,48 +1,40 @@
 [project]
-name = "invoice-processing"
+name = "po-processing"
 version = "1.0.0"
-description = "Invoice Processing -- Unified inference and learning agent for invoice processing"
+description = "PO Processing -- inference and learning agent for purchase-order documents (AWS Bedrock + Dash on Databricks)"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-keywords = ['agent-catalog', 'adk', 'agent']
+keywords = ['agent', 'bedrock', 'dash', 'databricks']
 readme = "README.md"
 
-authors = [
-    { name = "Pouya Ghiasnezhad Omran", email = "pgomran@google.com" },
-    { name = "Tanya Dixit", email = "dixittanya@google.com" },
-]
-
 dependencies = [
-    "google-adk>=1.0.0",
-    "google-cloud-aiplatform>=1.38.0",
-    "vertexai>=1.38.0",
+    "boto3>=1.34",
+    "dash>=2.17",
+    "plotly>=5.22",
     "pydantic>=2.8.0",
     "pdfplumber>=0.10.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
+    # Background callbacks for the long-running inference pipeline.
+    "diskcache>=5.6",
+    "multiprocess>=0.70",
+    "psutil>=5.9",
 ]
-
-[project.urls]
-Repository = "https://github.com/GoogleCloudPlatform/adk-samples"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["po_processing", "po_dash"]
+
 [dependency-groups]
 dev = [
     "ruff>=0.15.9",
-    "agent-starter-pack>=0.14.1",
+    "pytest>=8.0",
+    # Serve the Dash app under a production WSGI server.
+    "gunicorn>=22.0",
 ]
-
-[tool.agent_packs]
-template = "adk"
-
-[tool.agent-starter-pack]
-example_question = "Process the invoice for case_001."
-
-[tool.agent-starter-pack.settings]
-agent_directory = "invoice_processing"
 
 [[tool.uv.index]]
 name = "default"
@@ -50,8 +42,28 @@ url = "https://pypi.org/simple"
 default = true
 
 [tool.ruff]
-# extends the ruff rules established in the root .toml
-extend = "../../../pyproject.toml"
+line-length = 80
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle
+    "F", # pyflakes
+    "I", # isort
+    "C", # flake8-comprehension
+    "PL", # Pylint rules
+    "B", # flake8-bugbear
+    "UP", # pyupgrade
+    "RUF" # ruff specific rules
+]
+ignore = [
+    "E501", # Ignore line length for long LLM prompts
+    "PLR0913" # Allow agents to have many arguments if needed
+]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
+"**/__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

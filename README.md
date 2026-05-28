@@ -147,7 +147,7 @@ Agent: Generating rule via discover_safe_rule...
 
        Actions:
          1. set_field
-            Invoice Processing.Invoice Status = "Pending Payment"
+            PO Processing.PO Status = "Pending Payment"
             Invoice Processing.Rejection Reason = ""
             Invoice Processing.Rejection Phase = ""
 
@@ -240,7 +240,7 @@ The diagram above illustrates the three-zone architecture of the Invoice Process
 
 ```
 invoice-processing/
-├── invoice_processing/                      # Python package (fully self-contained)
+├── po_processing/                      # Python package (fully self-contained)
 │   ├── __init__.py                 # Exports root_agent
 │   ├── agent.py                    # LlmAgent + run_inference pipeline + root_agent
 │   ├── prompt.py                   # Dual-mode instruction prompt
@@ -335,10 +335,10 @@ See [`.env.example`](.env.example) for the full list. Key variables:
 cd ..
 
 # Launch via ADK web UI
-adk web invoice_processing
+adk web po_processing
 
 # Open http://127.0.0.1:8000 in your browser
-# Select "invoice_processing" from the app list
+# Select "po_processing" from the app list
 ```
 
 The agent will greet you with a mode selection prompt. Choose Inference to process cases or Learning to review and create rules.
@@ -347,7 +347,7 @@ The agent will greet you with a mode selection prompt. Choose Inference to proce
 
 ```bash
 # ADK CLI mode (non-interactive, run from agents directory)
-adk run invoice_processing
+adk run po_processing
 ```
 
 ---
@@ -358,14 +358,14 @@ adk run invoice_processing
 
 | What to change | Where |
 |----------------|-------|
-| Agent instructions and conversation behavior | [`invoice_processing/prompt.py`](invoice_processing/prompt.py) -- edit `INVOICE_PROCESSING_INSTRUCTION` |
-| Pipeline stages, gating logic, stage ordering | [`invoice_processing/agent.py`](invoice_processing/agent.py) -- edit `run_inference()` |
-| Which tools are available to the agent | [`invoice_processing/agent.py`](invoice_processing/agent.py) -- edit the `tools=[]` list in `root_agent` |
-| Model selection | [`invoice_processing/agent.py`](invoice_processing/agent.py) -- change `model=` parameter in `root_agent` |
+| Agent instructions and conversation behavior | [`po_processing/prompt.py`](po_processing/prompt.py) -- edit `INVOICE_PROCESSING_INSTRUCTION` |
+| Pipeline stages, gating logic, stage ordering | [`po_processing/agent.py`](po_processing/agent.py) -- edit `run_inference()` |
+| Which tools are available to the agent | [`po_processing/agent.py`](po_processing/agent.py) -- edit the `tools=[]` list in `root_agent` |
+| Model selection | [`po_processing/agent.py`](po_processing/agent.py) -- change `model=` parameter in `root_agent` |
 
 ### Adding New Tools
 
-1. Add your function to [`invoice_processing/tools/tools.py`](invoice_processing/tools/tools.py):
+1. Add your function to [`po_processing/tools/tools.py`](po_processing/tools/tools.py):
    ```python
    def my_new_tool(param: str) -> dict:
        """Description shown to the LLM. Args documented here."""
@@ -373,9 +373,9 @@ adk run invoice_processing
        return {"result": "..."}
    ```
 
-2. Import and register it in [`invoice_processing/agent.py`](invoice_processing/agent.py):
+2. Import and register it in [`po_processing/agent.py`](po_processing/agent.py):
    ```python
-   from invoice_processing.tools.tools import my_new_tool
+   from po_processing.tools.tools import my_new_tool
 
    root_agent = LlmAgent(
        ...
@@ -383,16 +383,16 @@ adk run invoice_processing
    )
    ```
 
-3. Update the prompt in [`invoice_processing/prompt.py`](invoice_processing/prompt.py) to tell the agent when and how to use the new tool.
+3. Update the prompt in [`po_processing/prompt.py`](po_processing/prompt.py) to tell the agent when and how to use the new tool.
 
 ### Changing Data Sources
 
 | What to change | How |
 |----------------|-----|
-| **Domain configuration** | Replace [`shared_libraries/invoice_master_data.yaml`](invoice_processing/shared_libraries/invoice_master_data.yaml) with your domain's YAML. The `MasterData` class provides typed accessors for 11 sections: document types, extraction schemas, taxonomies, validation pipeline, output schema, eval comparison groups, and more. |
-| **Validation rules** | Edit [`data/reconstructed_rules_book.md`](invoice_processing/data/reconstructed_rules_book.md) -- the "constitution" that the investigation layer validates against. |
-| **ALF correction rules** | Edit [`data/rule_base.json`](invoice_processing/data/rule_base.json) directly, or use Learning mode to create rules interactively. |
-| **Test cases** | Add new case folders to [`exemplary_data/`](invoice_processing/exemplary_data/) with PDFs and optional ground truth `Postprocessing_Data.json`. |
+| **Domain configuration** | Replace [`shared_libraries/invoice_master_data.yaml`](po_processing/shared_libraries/invoice_master_data.yaml) with your domain's YAML. The `MasterData` class provides typed accessors for 11 sections: document types, extraction schemas, taxonomies, validation pipeline, output schema, eval comparison groups, and more. |
+| **Validation rules** | Edit [`data/reconstructed_rules_book.md`](po_processing/data/reconstructed_rules_book.md) -- the "constitution" that the investigation layer validates against. |
+| **ALF correction rules** | Edit [`data/rule_base.json`](po_processing/data/rule_base.json) directly, or use Learning mode to create rules interactively. |
+| **Test cases** | Add new case folders to [`exemplary_data/`](po_processing/exemplary_data/) with PDFs and optional ground truth `Postprocessing_Data.json`. |
 
 ### Adapting to a New Document Domain
 
@@ -432,13 +432,13 @@ The evaluation framework lives in [`eval/`](eval/) and provides schema-driven as
 ```bash
 # Full evaluation (deterministic + LLM)
 uv run eval/eval.py \
-    --ground-truth agents/invoice-processing/invoice_processing/exemplary_data \
-    --agent-output agents/invoice-processing/invoice_processing/data/agent_output
+    --ground-truth agents/invoice-processing/po_processing/exemplary_data \
+    --agent-output agents/invoice-processing/po_processing/data/agent_output
 
 # Deterministic only (no LLM, no cost)
 uv run eval/eval.py \
-    --ground-truth agents/invoice-processing/invoice_processing/exemplary_data \
-    --agent-output agents/invoice-processing/invoice_processing/data/agent_output \
+    --ground-truth agents/invoice-processing/po_processing/exemplary_data \
+    --agent-output agents/invoice-processing/po_processing/data/agent_output \
     --skip-llm
 
 # Single case evaluation
@@ -446,15 +446,15 @@ uv run eval/eval.py --case case_001
 
 # Custom financial tolerance
 uv run eval/eval.py \
-    --ground-truth agents/invoice-processing/invoice_processing/exemplary_data \
-    --agent-output agents/invoice-processing/invoice_processing/data/agent_output \
+    --ground-truth agents/invoice-processing/po_processing/exemplary_data \
+    --agent-output agents/invoice-processing/po_processing/data/agent_output \
     --tolerance 0.05
 
 # Compare original vs ALF-revised output (before/after diff)
 python agents/invoice-processing/eval/compare_postprocessing.py
 ```
 
-Results are saved to `invoice_processing/data/eval_results/`.
+Results are saved to `po_processing/data/eval_results/`.
 
 ---
 
@@ -468,7 +468,7 @@ See [`deployment/README.md`](deployment/README.md) for details.
 
 ## Production: GCS Integration
 
-In local development, all data lives inside the agent package (`invoice_processing/data/` and `invoice_processing/exemplary_data/`). For production deployment, these directories should be replaced with Google Cloud Storage (GCS) buckets so that:
+In local development, all data lives inside the agent package (`po_processing/data/` and `po_processing/exemplary_data/`). For production deployment, these directories should be replaced with Google Cloud Storage (GCS) buckets so that:
 
 - **Incoming invoice cases** are read from a bucket where upstream systems or users upload PDFs
 - **Intermediate and final outputs** are written to a bucket for downstream consumption
@@ -478,15 +478,15 @@ In local development, all data lives inside the agent package (`invoice_processi
 
 | Local Path | GCS Bucket Path | Direction | Description |
 |-----------|-----------------|-----------|-------------|
-| `invoice_processing/exemplary_data/` | `gs://{BUCKET}/incoming_cases/` | Read | Invoice PDFs and supporting documents uploaded by users or upstream systems |
-| `invoice_processing/data/agent_output/` | `gs://{BUCKET}/agent_output/` | Write | Per-case intermediate artifacts (classification, extraction, validation, etc.) |
-| `invoice_processing/data/alf_output/` | `gs://{BUCKET}/alf_output/` | Write | ALF-corrected final outputs |
-| `invoice_processing/data/investigation_output/` | `gs://{BUCKET}/investigation_output/` | Write | Investigation compliance reports |
-| `invoice_processing/data/eval_results/` | `gs://{BUCKET}/eval_results/` | Write | Evaluation results |
-| `invoice_processing/data/learning_sessions/` | `gs://{BUCKET}/learning_sessions/` | Write | SME session logs |
-| `invoice_processing/data/rule_base.json` | `gs://{BUCKET}/config/rule_base.json` | Read/Write | ALF correction rules (user-facing) |
-| `invoice_processing/data/reconstructed_rules_book.md` | `gs://{BUCKET}/config/reconstructed_rules_book.md` | Read | Validation rules constitution (user-facing) |
-| `invoice_processing/data/rule_discovery_cache.json` | `gs://{BUCKET}/config/rule_discovery_cache.json` | Read/Write | Cached rule discovery results |
+| `po_processing/exemplary_data/` | `gs://{BUCKET}/incoming_cases/` | Read | Invoice PDFs and supporting documents uploaded by users or upstream systems |
+| `po_processing/data/agent_output/` | `gs://{BUCKET}/agent_output/` | Write | Per-case intermediate artifacts (classification, extraction, validation, etc.) |
+| `po_processing/data/alf_output/` | `gs://{BUCKET}/alf_output/` | Write | ALF-corrected final outputs |
+| `po_processing/data/investigation_output/` | `gs://{BUCKET}/investigation_output/` | Write | Investigation compliance reports |
+| `po_processing/data/eval_results/` | `gs://{BUCKET}/eval_results/` | Write | Evaluation results |
+| `po_processing/data/learning_sessions/` | `gs://{BUCKET}/learning_sessions/` | Write | SME session logs |
+| `po_processing/data/rule_base.json` | `gs://{BUCKET}/config/rule_base.json` | Read/Write | ALF correction rules (user-facing) |
+| `po_processing/data/reconstructed_rules_book.md` | `gs://{BUCKET}/config/reconstructed_rules_book.md` | Read | Validation rules constitution (user-facing) |
+| `po_processing/data/rule_discovery_cache.json` | `gs://{BUCKET}/config/rule_discovery_cache.json` | Read/Write | Cached rule discovery results |
 
 ### Recommended Bucket Structure
 
@@ -544,13 +544,13 @@ The following files need modification to support GCS I/O instead of local file p
 
 | File | What to Change |
 |------|----------------|
-| `invoice_processing/core/config.py` | Add GCS path resolution: when `GCS_ENABLED=true`, resolve `DATA_DIR`, `AGENTIC_FLOW_OUT`, `ALF_OUT_DIR`, `RULE_BASE_PATH`, `RULES_BOOK_PATH`, and `SESSIONS_DIR` to GCS paths instead of local paths |
-| `invoice_processing/agent.py` | Update `run_inference()` to read source cases from GCS (`gs://{BUCKET}/incoming_cases/{case_id}/`) and write outputs to GCS |
-| `invoice_processing/shared_libraries/acting/general_invoice_agent.py` | Replace local `OUTPUT_BASE_DIR` file I/O with GCS reads/writes using `google-cloud-storage` client |
-| `invoice_processing/shared_libraries/investigation/investigate_agent_reconst.py` | Update `AGENT_OUTPUT_DIR`, `INVESTIGATION_OUTPUT_DIR`, and `RULES_BOOK_PATH` to read from/write to GCS |
-| `invoice_processing/shared_libraries/alf_engine.py` | Update `ALF_OUT_DIR` and rule base loading to use GCS |
-| `invoice_processing/core/rule_writer.py` | Update `RULE_BASE_PATH` reads/writes and backup logic for GCS |
-| `invoice_processing/tools/tools.py` | Update `EXEMPLARY_DIR` and `DATA_DIR` to support GCS paths |
+| `po_processing/core/config.py` | Add GCS path resolution: when `GCS_ENABLED=true`, resolve `DATA_DIR`, `AGENTIC_FLOW_OUT`, `ALF_OUT_DIR`, `RULE_BASE_PATH`, `RULES_BOOK_PATH`, and `SESSIONS_DIR` to GCS paths instead of local paths |
+| `po_processing/agent.py` | Update `run_inference()` to read source cases from GCS (`gs://{BUCKET}/incoming_cases/{case_id}/`) and write outputs to GCS |
+| `po_processing/shared_libraries/acting/general_invoice_agent.py` | Replace local `OUTPUT_BASE_DIR` file I/O with GCS reads/writes using `google-cloud-storage` client |
+| `po_processing/shared_libraries/investigation/investigate_agent_reconst.py` | Update `AGENT_OUTPUT_DIR`, `INVESTIGATION_OUTPUT_DIR`, and `RULES_BOOK_PATH` to read from/write to GCS |
+| `po_processing/shared_libraries/alf_engine.py` | Update `ALF_OUT_DIR` and rule base loading to use GCS |
+| `po_processing/core/rule_writer.py` | Update `RULE_BASE_PATH` reads/writes and backup logic for GCS |
+| `po_processing/tools/tools.py` | Update `EXEMPLARY_DIR` and `DATA_DIR` to support GCS paths |
 
 ### User-Facing Files
 

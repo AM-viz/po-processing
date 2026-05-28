@@ -91,18 +91,18 @@ def compare_case(case_id: str) -> dict[str, Any]:
 
     # Files are different - analyze key differences
 
-    # 1. Invoice Status
+    # 1. PO Status
     original_status = get_nested_value(
-        original_data, ["Invoice Processing", "Invoice Status"]
+        original_data, ["PO Processing", "PO Status"]
     )
     alf_status = get_nested_value(
-        alf_data, ["Invoice Processing", "Invoice Status"]
+        alf_data, ["PO Processing", "PO Status"]
     )
 
     if original_status != alf_status:
         result["differences"].append(
             {
-                "field": "Invoice Processing -> Invoice Status",
+                "field": "PO Processing -> PO Status",
                 "original": original_status,
                 "alf": alf_status,
             }
@@ -110,16 +110,16 @@ def compare_case(case_id: str) -> dict[str, Any]:
 
     # 2. Outcome Message
     original_outcome = get_nested_value(
-        original_data, ["Invoice Processing", "Outcome Message"]
+        original_data, ["PO Processing", "Outcome Message"]
     )
     alf_outcome = get_nested_value(
-        alf_data, ["Invoice Processing", "Outcome Message"]
+        alf_data, ["PO Processing", "Outcome Message"]
     )
 
     if original_outcome != alf_outcome:
         result["differences"].append(
             {
-                "field": "Invoice Processing -> Outcome Message",
+                "field": "PO Processing -> Outcome Message",
                 "original": original_outcome,
                 "alf": alf_outcome,
             }

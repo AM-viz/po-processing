@@ -1,4 +1,4 @@
-"""Pytest configuration for invoice_processing tests."""
+"""Pytest configuration for po_processing tests."""
 
 import sys
 from pathlib import Path

@@ -7,7 +7,7 @@ from typing import ClassVar
 # Add parent package to path so imports work without installing
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from invoice_processing.shared_libraries.alf_engine import (
+from po_processing.shared_libraries.alf_engine import (
     ConditionEvaluator,
 )
 
@@ -543,7 +543,7 @@ class TestALF001Scenario:
             "value": "different company",
         },
         {
-            "field": "invoice.customer_name",
+            "field": "po.customer_name",
             "operator": "regex_match",
             "value": r"(?i)^acme\s+pty\s+ltd$",
         },
@@ -554,9 +554,9 @@ class TestALF001Scenario:
         data = {
             "decision_phase1": "REJECT",
             "phase1": {
-                "rejection_template": "Invoice addressed to different company"
+                "rejection_template": "PO addressed to different company"
             },
-            "invoice": {"customer_name": "Acme Pty Ltd"},
+            "po": {"customer_name": "Acme Pty Ltd"},
         }
         passed, _ = ConditionEvaluator.evaluate_all(
             data, self.ALF_001_CONDITIONS
@@ -568,7 +568,7 @@ class TestALF001Scenario:
         data = {
             "decision_phase1": "REJECT",
             "phase1": {"rejection_template": "GST calculation error"},
-            "invoice": {"customer_name": "ACME Corp"},
+            "po": {"customer_name": "ACME Corp"},
         }
         passed, _ = ConditionEvaluator.evaluate_all(
             data, self.ALF_001_CONDITIONS
@@ -580,7 +580,7 @@ class TestALF001Scenario:
         data = {
             "decision_phase1": "ACCEPT",
             "phase1": {},
-            "invoice": {"customer_name": "ACME Corp"},
+            "po": {"customer_name": "ACME Corp"},
         }
         passed, _ = ConditionEvaluator.evaluate_all(
             data, self.ALF_001_CONDITIONS

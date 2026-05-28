@@ -9,9 +9,9 @@ from datetime import datetime, timezone
 
 from dash import Input, Output, State, html, no_update
 
-from invoice_processing import run_inference
-from invoice_processing.core import storage
-from invoice_processing.tools.tools import list_inference_cases
+from po_processing import run_inference
+from po_processing.core import storage
+from po_processing.tools.tools import list_inference_cases
 
 from . import components
 
@@ -20,7 +20,7 @@ def _save_uploaded_files(contents: list[str], filenames: list[str]) -> str:
     """Persist uploaded PDFs into a new case folder; return the case id."""
     case_id = datetime.now(timezone.utc).strftime("uploaded_%Y%m%d_%H%M%S")
     case_dir = storage.EXEMPLARY_DIR / case_id
-    for content, name in zip(contents, filenames):
+    for content, name in zip(contents, filenames, strict=False):
         _, b64 = content.split(",", 1)
         data = base64.b64decode(b64)
         safe_name = name if name.lower().endswith(".pdf") else f"{name}.pdf"
@@ -58,7 +58,7 @@ def _render_results(result: dict, logs: str) -> html.Div:
             children.append(html.Hr())
             children.append(components.section_title("Final output"))
             children.append(components.json_viewer(storage.read_json(final_path)))
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     children.append(html.Hr())
@@ -87,15 +87,15 @@ def register(app, background: bool) -> None:
             case_id,
         )
 
-    callback_kwargs = dict(
-        output=Output("inference-results", "children"),
-        inputs=Input("inference-run-button", "n_clicks"),
-        state=[
+    callback_kwargs = {
+        "output": Output("inference-results", "children"),
+        "inputs": Input("inference-run-button", "n_clicks"),
+        "state": [
             State("inference-case-dropdown", "value"),
             State("inference-skip-investigation", "value"),
         ],
-        prevent_initial_call=True,
-    )
+        "prevent_initial_call": True,
+    }
     if background:
         callback_kwargs["background"] = True
 
@@ -110,6 +110,6 @@ def register(app, background: bool) -> None:
         try:
             with contextlib.redirect_stdout(buffer):
                 result = run_inference(case_id, skip)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             result = {"status": "ERROR", "error": str(exc)}
         return _render_results(result, buffer.getvalue())

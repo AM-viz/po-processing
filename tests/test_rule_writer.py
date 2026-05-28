@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import invoice_processing.core.rule_writer as rw_module
-from invoice_processing.core.rule_writer import RuleWriterAgent
+import po_processing.core.rule_writer as rw_module
+from po_processing.core.rule_writer import RuleWriterAgent
 
 _EXPECTED_RULE_COUNT = 2
 
@@ -146,7 +146,7 @@ class TestValidateRule:
 class TestCheckConflicts:
     def test_duplicate_id_warning(self):
         agent, tmp_path = _make_agent_with_rule_base(SAMPLE_RULE_BASE)
-        with patch("invoice_processing.core.config.RULE_BASE_PATH", tmp_path):
+        with patch("po_processing.core.config.RULE_BASE_PATH", tmp_path):
             with patch.object(
                 type(agent), "load_rule_base", return_value=SAMPLE_RULE_BASE
             ):

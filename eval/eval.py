@@ -52,13 +52,13 @@ try:
 except ImportError:
     pass
 
-# Resolve: eval/ -> invoice_processing/ -> agents/ -> project root
+# Resolve: eval/ -> po_processing/ -> agents/ -> project root
 SCRIPT_DIR = Path(__file__).resolve().parent
 AGENT_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = AGENT_DIR.parent.parent
 
 # Master data loader — provides domain-agnostic configuration
-sys.path.insert(0, str(AGENT_DIR / "invoice_processing" / "shared_libraries"))
+sys.path.insert(0, str(AGENT_DIR / "po_processing" / "shared_libraries"))
 from master_data_loader import MasterData, load_master_data  # noqa: E402
 
 # ============================================================================
@@ -140,7 +140,7 @@ def normalize_string(val: str | None) -> str:
 def status_to_decision(
     status: str, mapping: dict[str, str] | None = None
 ) -> str:
-    """Map Invoice Status to decision class using master data or fallback."""
+    """Map PO Status to decision class using master data or fallback."""
     if mapping is None:
         mapping = _FALLBACK_STATUS_TO_DECISION
     return mapping.get(normalize_string(status), "UNKNOWN")
@@ -167,16 +167,16 @@ def compare_decision(
     """Compare the processing decision (ACCEPT/REJECT/SET_ASIDE).
 
     Reads the decision field path and status-to-decision mapping from master data.
-    Falls back to hardcoded "Invoice Processing.Invoice Status" if no master data.
+    Falls back to hardcoded "PO Processing.PO Status" if no master data.
     """
     if master:
         decision_path = master.get_eval_decision_path()
         status_mapping = master.get_eval_status_to_decision()
     else:
-        decision_path = "Invoice Processing.Invoice Status"
+        decision_path = "PO Processing.PO Status"
         status_mapping = _FALLBACK_STATUS_TO_DECISION
 
-    # Resolve the decision path (e.g., "Invoice Processing.Invoice Status")
+    # Resolve the decision path (e.g., "PO Processing.PO Status")
     parts = decision_path.split(".")
     gt_status = gt
     agent_status = agent
@@ -208,11 +208,11 @@ def compare_decision(
 
 def compare_financials(gt: dict, agent: dict, tolerance: float) -> dict:
     """Compare financial amounts (total, pretax, tax)."""
-    gt_details = gt.get("Invoice Details") or {}
-    agent_details = agent.get("Invoice Details") or {}
+    gt_details = gt.get("PO Details") or {}
+    agent_details = agent.get("PO Details") or {}
 
     fields = {
-        "Invoice Total": ("Invoice Total", tolerance),
+        "PO Total": ("PO Total", tolerance),
         "Pretax Total": ("Pretax Total", tolerance),
         "Tax Amount": ("Tax Amount", tolerance),
     }
@@ -283,13 +283,13 @@ def compare_vendor(gt: dict, agent: dict) -> dict:
 
 def compare_header(gt: dict, agent: dict) -> dict:
     """Compare invoice header fields (number, date)."""
-    gt_details = gt.get("Invoice Details") or {}
-    agent_details = agent.get("Invoice Details") or {}
+    gt_details = gt.get("PO Details") or {}
+    agent_details = agent.get("PO Details") or {}
 
     results = {}
     all_match = True
 
-    for field in ["Vendor Invoice", "Invoice Date"]:
+    for field in ["PO Number", "PO Date"]:
         gt_val = str(gt_details.get(field, "")).strip()
         agent_val = str(agent_details.get(field, "")).strip()
         match = normalize_string(gt_val) == normalize_string(agent_val)
@@ -820,14 +820,14 @@ def _collect_legacy_mismatches(
     mismatches.extend(
         _collect_field_mismatches(
             financials,
-            ["Invoice Total", "Pretax Total", "Tax Amount", "Currency"],
+            ["PO Total", "Pretax Total", "Tax Amount", "Currency"],
         )
     )
     mismatches.extend(
         _collect_field_mismatches(vendor, ["Vendor Name", "Tax ID"])
     )
     mismatches.extend(
-        _collect_field_mismatches(header, ["Vendor Invoice", "Invoice Date"])
+        _collect_field_mismatches(header, ["PO Number", "PO Date"])
     )
     mismatches.extend(_collect_line_item_mismatches(line_items))
     return mismatches
@@ -971,10 +971,10 @@ def _compute_group_and_field_stats_legacy(
     legacy_field_groups = [
         (
             "financials",
-            ["Invoice Total", "Pretax Total", "Tax Amount", "Currency"],
+            ["PO Total", "Pretax Total", "Tax Amount", "Currency"],
         ),
         ("vendor", ["Vendor Name", "Tax ID"]),
-        ("header", ["Vendor Invoice", "Invoice Date"]),
+        ("header", ["PO Number", "PO Date"]),
     ]
     for section_key, fields in legacy_field_groups:
         for field in fields:
@@ -1393,10 +1393,10 @@ def _save_results(
     output_json = {
         "timestamp": datetime.now().isoformat(),
         "config": {
-            "domain": master.domain if master else "invoice_processing",
+            "domain": master.domain if master else "po_processing",
             "display_name": master.display_name
             if master
-            else "Invoice Processing",
+            else "PO Processing",
             "master_data": str(master.source_path)
             if master and master.source_path
             else None,
@@ -1437,7 +1437,7 @@ def main():
                 "  Install: pip install google-cloud-aiplatform python-dotenv"
             )
 
-    domain_name = master.display_name if master else "Invoice Processing"
+    domain_name = master.display_name if master else "PO Processing"
     print("=" * 70)
     print(f"{domain_name.upper()} AGENT EVALUATION")
     print("=" * 70)

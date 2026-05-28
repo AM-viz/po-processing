@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 
-from dash import Input, Output, State, ctx, html, no_update
+from dash import Input, Output, State, html, no_update
 
-from invoice_processing.tools.tools import (
+from po_processing.tools.tools import (
     delete_rule,
     discover_safe_rule,
     get_existing_rules,
@@ -18,7 +18,8 @@ from invoice_processing.tools.tools import (
 from . import components
 
 
-def register(app, background: bool) -> None:  # noqa: ARG001 (background unused here)
+def register(app, background: bool) -> None:  # noqa: C901
+    # background unused here; many small callbacks keep this function long.
     # Populate the processed-case dropdown when the Learning tab is shown.
     @app.callback(
         Output("learning-case-dropdown", "options"),
@@ -40,7 +41,7 @@ def register(app, background: bool) -> None:  # noqa: ARG001 (background unused 
             return html.Em("Select a case first.")
         try:
             data = load_case(case_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return html.Div(f"Failed to load case: {exc}", style={"color": "#cf222e"})
         return html.Div(
             [
@@ -67,7 +68,7 @@ def register(app, background: bool) -> None:  # noqa: ARG001 (background unused 
             return html.Em("Select a case and enter feedback."), no_update
         try:
             result = discover_safe_rule(case_id, feedback)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return html.Div(f"Discovery failed: {exc}", style={"color": "#cf222e"}), no_update
         rule = result.get("rule") or result.get("proposed_rule") or result
         return (
@@ -92,7 +93,7 @@ def register(app, background: bool) -> None:  # noqa: ARG001 (background unused 
             return html.Em("Discover a rule first.")
         try:
             result = write_rule(json.dumps(rule), "add")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return html.Div(f"Write failed: {exc}", style={"color": "#cf222e"})
         return html.Div(f"Wrote rule: {result}", style={"color": "#1a7f37"})
 
@@ -106,7 +107,7 @@ def register(app, background: bool) -> None:  # noqa: ARG001 (background unused 
     def _refresh_rules(*_clicks):
         try:
             rules = get_existing_rules()
-        except Exception:  # noqa: BLE001
+        except Exception:
             rules = []
         return components.rules_table(rules)
 
@@ -123,6 +124,6 @@ def register(app, background: bool) -> None:  # noqa: ARG001 (background unused 
         rule_id = table_data[selected_rows[0]].get("id")
         try:
             result = delete_rule(rule_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return html.Div(f"Delete failed: {exc}", style={"color": "#cf222e"})
         return html.Div(f"Deleted {rule_id}: {result}", style={"color": "#1a7f37"})

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dash import dcc, html
 
-from invoice_processing.tools.tools import list_inference_cases
+from po_processing.tools.tools import list_inference_cases
 
 CONTENT_STYLE = {"maxWidth": "1100px", "margin": "0 auto", "padding": "16px"}
 

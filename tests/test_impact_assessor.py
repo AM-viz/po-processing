@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from invoice_processing.core.impact_assessor import (
+from po_processing.core.impact_assessor import (
     CaseMatch,
     ImpactAssessorAgent,
     ImpactReport,
@@ -177,7 +177,7 @@ class TestImpactAssessorRun:
                     "decision": "REJECT",
                     "rejection_template": "different company",
                 },
-                "invoice": {"customer_name": "Acme Pty Ltd"},
+                "po": {"customer_name": "Acme Pty Ltd"},
             },
             "case_001": {
                 "decision_phase1": "REJECT",
@@ -185,12 +185,12 @@ class TestImpactAssessorRun:
                     "decision": "REJECT",
                     "rejection_template": "GST error",
                 },
-                "invoice": {"customer_name": "ACME Corp"},
+                "po": {"customer_name": "ACME Corp"},
             },
             "case_002": {
                 "decision_phase1": "ACCEPT",
                 "phase1": {"decision": "ACCEPT"},
-                "invoice": {"customer_name": "ACME Corp"},
+                "po": {"customer_name": "ACME Corp"},
             },
         }
 
@@ -207,7 +207,7 @@ class TestImpactAssessorRun:
                     "value": "different company",
                 },
                 {
-                    "field": "invoice.customer_name",
+                    "field": "po.customer_name",
                     "operator": "regex_match",
                     "value": r"(?i)^acme\s+pty\s+ltd$",
                 },
