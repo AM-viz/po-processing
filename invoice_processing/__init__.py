@@ -1,3 +1,3 @@
-"""Invoice Processing -- Unified inference and learning agent for invoice processing."""
+"""Invoice Processing -- inference and learning agent (Bedrock + Dash)."""
 
-from .agent import root_agent as root_agent
+from .agent import run_inference as run_inference

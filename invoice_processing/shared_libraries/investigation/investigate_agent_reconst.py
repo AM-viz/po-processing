@@ -48,24 +48,22 @@ from typing import Any, ClassVar
 
 # Third-party imports
 try:
-    from dotenv import load_dotenv
-    from google.cloud import aiplatform
     from pydantic import BaseModel, Field
-    from vertexai.preview.generative_models import (
+
+    from invoice_processing.core.llm_client import (
         GenerationConfig,
         GenerativeModel,
     )
 except ImportError:
     print("Error: Missing required package. Install with:")
-    print("pip install google-cloud-aiplatform pydantic python-dotenv")
+    print("pip install boto3 pydantic python-dotenv")
     sys.exit(1)
 
-SCRIPT_DIR = Path(__file__).parent  # shared_libraries/investigation/ folder
-# Resolve paths: investigation/ -> shared_libraries/ -> invoice_processing/ (package root with data/ inside)
-AGENT_PKG_DIR = Path(__file__).resolve().parent.parent.parent
+from invoice_processing.core import storage
 
-# Project root for .env resolution
-PROJECT_ROOT = AGENT_PKG_DIR.parent.parent.parent
+SCRIPT_DIR = Path(__file__).parent  # shared_libraries/investigation/ folder
+AGENT_PKG_DIR = storage.PACKAGE_DIR
+PROJECT_ROOT = storage.PROJECT_ROOT
 
 # Master data loader — provides domain-agnostic configuration
 sys.path.insert(
@@ -88,22 +86,14 @@ def _get_master_data() -> "MasterData | None":
     return _master_data_container["instance"]
 
 
-_env_file = PROJECT_ROOT / ".env"
-if _env_file.exists():
-    load_dotenv(_env_file)
-else:
-    load_dotenv()
-
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-INPUT_BASE_DIR = AGENT_PKG_DIR / "exemplary_data"  # Ground truth / input cases
-AGENT_OUTPUT_DIR = (
-    AGENT_PKG_DIR / "data" / "agent_output"
-)  # Agent output directory
+INPUT_BASE_DIR = storage.EXEMPLARY_DIR  # Ground truth / input cases
+AGENT_OUTPUT_DIR = storage.AGENTIC_FLOW_OUT  # Agent output directory
 
 # Use reconstructed_rules_book.md from shared data directory
-RULES_BOOK_PATH = AGENT_PKG_DIR / "data" / "reconstructed_rules_book.md"
+RULES_BOOK_PATH = storage.RULES_BOOK_PATH
 
 # ============================================================================
 # NAMED CONSTANTS (extracted from magic values for PLR2004)
@@ -121,49 +111,24 @@ _PARTIAL_EXTRACTION_THRESHOLD = 70
 _MAX_LINE_WIDTH = 75
 
 # Output directory for investigation results (used by batch runner only)
-INVESTIGATION_OUTPUT_DIR = AGENT_PKG_DIR / "data" / "investigation_output"
+INVESTIGATION_OUTPUT_DIR = storage.INVESTIGATION_OUTPUT_DIR
 
-# GCP Configuration (lazy -- resolved at call time for deployment compatibility)
-# Stored in a mutable dict so helpers can update without `global` statements.
+# LLM configuration. Model-name strings are mapped to Bedrock roles by
+# llm_client (a name containing "pro" -> Sonnet/heavy). Kept in a mutable dict
+# so helpers can update without `global` statements.
 _gcp_config: dict[str, Any] = {
-    "PROJECT_ID": None,
-    "LOCATION": os.getenv("LOCATION", "us-central1"),
-    "GEMINI_PRO_MODEL": os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro"),
+    "GEMINI_PRO_MODEL": "heavy-pro",
     "initialized": False,
 }
 
-# Module-level aliases kept for backward compatibility (read-only convenience).
-PROJECT_ID = _gcp_config["PROJECT_ID"]
-LOCATION = _gcp_config["LOCATION"]
+# Module-level alias kept for backward compatibility (read-only convenience).
 GEMINI_PRO_MODEL = _gcp_config["GEMINI_PRO_MODEL"]
 
 
 def _ensure_gcp_initialized():
-    """Lazy-initialize GCP/Vertex AI on first use (not at import time).
+    """Lazy initialization hook (no-op for Bedrock; creds come from AWS env).
 
-    Agent Engine sets env vars after module import, so we must defer."""
-    if _gcp_config["initialized"]:
-        return
-    _gcp_config["PROJECT_ID"] = (
-        os.getenv("PROJECT_ID")
-        or os.getenv("GOOGLE_CLOUD_PROJECT")
-        or os.getenv("GOOGLE_CLOUD_PROJECT_ID")
-        or os.getenv("GCP_PROJECT")
-    )
-    _gcp_config["LOCATION"] = os.getenv("LOCATION") or os.getenv(
-        "GOOGLE_CLOUD_REGION", "us-central1"
-    )
-    _gcp_config["GEMINI_PRO_MODEL"] = os.getenv(
-        "GEMINI_PRO_MODEL", "gemini-2.5-pro"
-    )
-    if not _gcp_config["PROJECT_ID"]:
-        raise RuntimeError(
-            "PROJECT_ID not found in environment. "
-            "Set it in .env file or export PROJECT_ID=your-gcp-project-id"
-        )
-    aiplatform.init(
-        project=_gcp_config["PROJECT_ID"], location=_gcp_config["LOCATION"]
-    )
+    Retained so existing call-sites need no edits."""
     _gcp_config["initialized"] = True
 
 
@@ -5969,7 +5934,7 @@ def _load_and_print_config(args) -> str:
     print(f"  Domain: {domain_name}")
     if _md and _md.source_path:
         print(f"  Master data: {_md.source_path}")
-    print(f"  Project: {_gcp_config['PROJECT_ID']}")
+    print(f"  Region: {os.getenv('AWS_REGION', 'us-gov-west-1')}")
     print(f"  Model: {_gcp_config['GEMINI_PRO_MODEL']}")
     print(f"  Rules: {RULES_BOOK_PATH}")
     print(f"  Layer 3: {'DISABLED' if args.disable_layer3 else 'ENABLED'}")

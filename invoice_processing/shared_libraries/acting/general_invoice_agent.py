@@ -45,94 +45,67 @@ from typing import Any, ClassVar, Literal
 # Third-party imports
 try:
     import pdfplumber
-    from dotenv import load_dotenv
-    from google.cloud import aiplatform
     from pydantic import BaseModel, Field
-    from vertexai.generative_models import (
+
+    from invoice_processing.core.llm_client import (
         GenerationConfig,
         GenerativeModel,
         Part,
     )
 except ImportError:
     print("Error: Missing required package. Install with:")
-    print(
-        "pip install google-cloud-aiplatform pydantic pdfplumber python-dotenv"
-    )
+    print("pip install boto3 pydantic pdfplumber python-dotenv")
     sys.exit(1)
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-# Resolve paths: acting/ -> shared_libraries/ -> invoice_processing/ (package root with data/ inside)
-SCRIPT_DIR = Path(__file__).resolve().parent
-AGENT_PKG_DIR = SCRIPT_DIR.parent.parent
-OUTPUT_BASE_DIR = AGENT_PKG_DIR / "data" / "agent_output"
+# Data paths come from the storage abstraction (honors VOLUME_BASE).
+from invoice_processing.core import storage  # noqa: E402
 
-# Project root for .env resolution
-PROJECT_ROOT = AGENT_PKG_DIR.parent.parent.parent
-ENV_FILE = PROJECT_ROOT / ".env"
-if ENV_FILE.exists():
-    load_dotenv(ENV_FILE)
-else:
-    load_dotenv()  # Fallback to default behavior
+OUTPUT_BASE_DIR = storage.AGENTIC_FLOW_OUT
+PROJECT_ROOT = storage.PROJECT_ROOT
 
 # Magic-value constants
 _MIN_PDF_CONTENT_LENGTH = 50
 _ABN_EXPECTED_LENGTH = 11
+# Bedrock Converse document blocks have a request-size ceiling; oversize PDFs
+# fall through to the deterministic pdfplumber extractor.
+_MAX_BEDROCK_PDF_BYTES = int(os.getenv("BEDROCK_MAX_PDF_BYTES", str(4_500_000)))
 
 
 @dataclass
-class _GCPConfig:
-    """Mutable container for GCP configuration (lazy-initialized)."""
+class _LLMConfig:
+    """Mutable container for LLM model selection (lazy-initialized).
 
-    PROJECT_ID: str | None = None
-    LOCATION: str = "us-central1"
-    GEMINI_FLASH_MODEL: str = "gemini-2.5-flash"
-    GEMINI_PRO_MODEL: str = "gemini-2.5-pro"
-    API_CALL_DELAY_SECONDS: float = 1.0
+    Model-name strings are mapped to Bedrock roles by ``llm_client`` (a name
+    containing "flash" -> Haiku/fast, "pro" -> Sonnet/heavy)."""
+
+    # "fast" role name (extraction/classification). The PDF extractor is routed
+    # to the heavy role separately for reliable document support.
+    FAST_MODEL: str = "fast-flash"
+    HEAVY_MODEL: str = "heavy-pro"
+    CALL_DELAY_SECONDS: float = 0.0
+    bedrock_available: bool = True
     initialized: bool = False
 
 
-_gcp_config = _GCPConfig(
-    LOCATION=os.getenv("LOCATION", "us-central1"),
-    GEMINI_FLASH_MODEL=os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash"),
-    GEMINI_PRO_MODEL=os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro"),
-    API_CALL_DELAY_SECONDS=float(os.getenv("API_CALL_DELAY_SECONDS", "1.0")),
+_gcp_config = _LLMConfig(
+    CALL_DELAY_SECONDS=float(os.getenv("BEDROCK_CALL_DELAY_SECONDS", "0")),
 )
 
 
 def _ensure_gcp_initialized():
-    """Lazy-initialize GCP/Vertex AI on first use (not at import time).
+    """Lazy initialization hook (no-op for Bedrock; creds come from AWS env).
 
-    Agent Engine sets env vars after module import, so we must defer."""
+    Retained so existing call-sites need no edits. AWS credentials are resolved
+    by boto3 from the environment / instance profile inside ``llm_client``."""
     if _gcp_config.initialized:
         return
-    _gcp_config.PROJECT_ID = (
-        os.getenv("PROJECT_ID")
-        or os.getenv("GOOGLE_CLOUD_PROJECT")
-        or os.getenv("GOOGLE_CLOUD_PROJECT_ID")
-        or os.getenv("GCP_PROJECT")
+    _gcp_config.CALL_DELAY_SECONDS = float(
+        os.getenv("BEDROCK_CALL_DELAY_SECONDS", "0")
     )
-    _gcp_config.LOCATION = os.getenv("LOCATION") or os.getenv(
-        "GOOGLE_CLOUD_REGION", "us-central1"
-    )
-    _gcp_config.GEMINI_FLASH_MODEL = os.getenv(
-        "GEMINI_FLASH_MODEL", "gemini-2.5-flash"
-    )
-    _gcp_config.GEMINI_PRO_MODEL = os.getenv(
-        "GEMINI_PRO_MODEL", "gemini-2.5-pro"
-    )
-    _gcp_config.API_CALL_DELAY_SECONDS = float(
-        os.getenv("API_CALL_DELAY_SECONDS", "1.0")
-    )
-    if not _gcp_config.PROJECT_ID:
-        print("Warning: PROJECT_ID not found in environment")
-        print("Set it in .env file or export PROJECT_ID=your-gcp-project-id")
-    else:
-        aiplatform.init(
-            project=_gcp_config.PROJECT_ID, location=_gcp_config.LOCATION
-        )
     _gcp_config.initialized = True
 
 
@@ -329,10 +302,14 @@ def extract_pdf_to_markdown(pdf_path: Path) -> str:
         return f"[PDF extraction failed: {e}]"
 
 
-def extract_pdf_with_gemini(pdf_path: Path) -> str:
-    """Extract text from PDF using Gemini multimodal"""
+def extract_pdf_with_bedrock(pdf_path: Path) -> str:
+    """Extract text from PDF using Bedrock multimodal (heavy/Sonnet role).
+
+    The heavy role is used because reliable document understanding is the
+    priority for extraction (and Haiku document support is less consistent
+    across regions)."""
     model = GenerativeModel(
-        _gcp_config.GEMINI_FLASH_MODEL,
+        role="heavy",
         generation_config=GenerationConfig(temperature=0),
     )
 
@@ -347,22 +324,30 @@ Do not summarize - extract complete text content."""
 
     response = model.generate_content([pdf_part, prompt])
 
-    if _gcp_config.API_CALL_DELAY_SECONDS > 0:
-        time.sleep(_gcp_config.API_CALL_DELAY_SECONDS)
+    if _gcp_config.CALL_DELAY_SECONDS > 0:
+        time.sleep(_gcp_config.CALL_DELAY_SECONDS)
 
     return response.text
 
 
+# Backwards-compatible alias (older call-sites / tests referenced this name).
+extract_pdf_with_gemini = extract_pdf_with_bedrock
+
+
 def extract_pdf_with_fallback(pdf_path: Path) -> tuple[str, str]:
-    """Extract PDF with Gemini as default, pdfplumber as fallback"""
+    """Extract PDF with Bedrock as default, pdfplumber as fallback.
+
+    Oversize PDFs (beyond the Converse request limit) skip Bedrock and go
+    straight to deterministic pdfplumber extraction."""
     _ensure_gcp_initialized()
-    if _gcp_config.PROJECT_ID:
+    pdf_size = pdf_path.stat().st_size if pdf_path.exists() else 0
+    if _gcp_config.bedrock_available and pdf_size <= _MAX_BEDROCK_PDF_BYTES:
         try:
-            content = extract_pdf_with_gemini(pdf_path)
+            content = extract_pdf_with_bedrock(pdf_path)
             if content and len(content.strip()) > _MIN_PDF_CONTENT_LENGTH:
-                return content, "gemini"
+                return content, "bedrock"
         except Exception as e:
-            print(f"    Gemini extraction failed: {e}, using pdfplumber...")
+            print(f"    Bedrock extraction failed: {e}, using pdfplumber...")
 
     content = extract_pdf_to_markdown(pdf_path)
     return content, "pdfplumber"
@@ -468,7 +453,7 @@ def call_gemini(
 ) -> tuple[Any, float]:
     """Call Gemini API with optional structured output"""
     metrics = _get_metrics()
-    model_name = model_name or _gcp_config.GEMINI_FLASH_MODEL
+    model_name = model_name or _gcp_config.FAST_MODEL
     model = GenerativeModel(
         model_name,
         generation_config=GenerationConfig(temperature=0),
@@ -491,8 +476,8 @@ def call_gemini(
     cost += (usage.candidates_token_count / 1_000_000) * pricing["output"]
     metrics["total_cost_usd"] += cost
 
-    if _gcp_config.API_CALL_DELAY_SECONDS > 0:
-        time.sleep(_gcp_config.API_CALL_DELAY_SECONDS)
+    if _gcp_config.CALL_DELAY_SECONDS > 0:
+        time.sleep(_gcp_config.CALL_DELAY_SECONDS)
 
     if response_schema:
         json_str = clean_json_response(response.text)
@@ -509,7 +494,7 @@ def call_gemini_with_pdf(
 ) -> tuple[Any, float]:
     """Call Gemini with PDF as input"""
     metrics = _get_metrics()
-    model_name = model_name or _gcp_config.GEMINI_PRO_MODEL
+    model_name = model_name or _gcp_config.HEAVY_MODEL
     model = GenerativeModel(
         model_name,
         generation_config=GenerationConfig(temperature=0),
@@ -537,8 +522,8 @@ def call_gemini_with_pdf(
     cost += (usage.candidates_token_count / 1_000_000) * pricing["output"]
     metrics["total_cost_usd"] += cost
 
-    if _gcp_config.API_CALL_DELAY_SECONDS > 0:
-        time.sleep(_gcp_config.API_CALL_DELAY_SECONDS)
+    if _gcp_config.CALL_DELAY_SECONDS > 0:
+        time.sleep(_gcp_config.CALL_DELAY_SECONDS)
 
     if response_schema:
         json_str = clean_json_response(response.text)
@@ -579,7 +564,7 @@ Return ONLY this JSON:
 
     try:
         result, _ = call_gemini(
-            prompt, _gcp_config.GEMINI_FLASH_MODEL, VendorNameSimilarity
+            prompt, _gcp_config.FAST_MODEL, VendorNameSimilarity
         )
         return result.are_similar, result.reasoning, result.confidence
     except Exception as e:
@@ -732,7 +717,7 @@ Return ONLY this JSON:
 
         try:
             result, _ = call_gemini(
-                prompt, _gcp_config.GEMINI_FLASH_MODEL, DocumentContent
+                prompt, _gcp_config.FAST_MODEL, DocumentContent
             )
             return result
         except Exception as e:
@@ -864,7 +849,7 @@ Return ONLY valid JSON with these fields:
 Extract ALL line items. Use null for missing optional fields."""
 
         result, _ = call_gemini_with_pdf(
-            pdf_path, prompt, _gcp_config.GEMINI_PRO_MODEL, InvoiceExtraction
+            pdf_path, prompt, _gcp_config.HEAVY_MODEL, InvoiceExtraction
         )
         return result.model_dump()
 
@@ -885,7 +870,7 @@ Return ONLY valid JSON:
         result, _ = call_gemini_with_pdf(
             pdf_path,
             prompt,
-            _gcp_config.GEMINI_PRO_MODEL,
+            _gcp_config.HEAVY_MODEL,
             WorkAuthorizationExtraction,
         )
         return result.model_dump()
@@ -1509,7 +1494,7 @@ Return ONLY a JSON object in this exact format:
 {{"classifications": [{{"item_number": 1, "item_code": "CODE", "reasoning": "brief reason"}}, ...]}}"""
 
         try:
-            result, _ = call_gemini(prompt, _gcp_config.GEMINI_FLASH_MODEL)
+            result, _ = call_gemini(prompt, _gcp_config.FAST_MODEL)
             json_str = clean_json_response(result)
             parsed = json.loads(json_str)
             classifications = parsed.get("classifications", [])

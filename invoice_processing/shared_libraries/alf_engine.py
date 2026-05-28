@@ -52,13 +52,13 @@ from typing import Any, ClassVar
 
 logger = logging.getLogger("ALF")
 
-# Resolve paths: shared_libraries/ -> invoice_processing/ (package root with data/ inside)
-SCRIPT_DIR = Path(__file__).parent  # shared_libraries/
-AGENT_PKG_DIR = SCRIPT_DIR.parent  # invoice_processing/ package root
-ALF_OUT_DIR = AGENT_PKG_DIR / "data" / "alf_output"
+# Data paths come from the storage abstraction (honors VOLUME_BASE).
+from invoice_processing.core import storage  # noqa: E402
 
-# Project root for .env resolution
-PROJECT_ROOT = AGENT_PKG_DIR.parent.parent.parent
+SCRIPT_DIR = Path(__file__).parent  # shared_libraries/
+AGENT_PKG_DIR = storage.PACKAGE_DIR  # invoice_processing/ package root
+ALF_OUT_DIR = storage.ALF_OUT_DIR
+PROJECT_ROOT = storage.PROJECT_ROOT
 
 # ---------------------------------------------------------------------------
 # Master data loader (optional — provides domain-agnostic configuration)
@@ -157,46 +157,14 @@ SUPPORTED_ACTION_TYPES = {
 # ============================================================================
 
 # GCP / Vertex AI config (mirrors acting_agent settings)
-try:
-    from dotenv import load_dotenv
-
-    _env_file = PROJECT_ROOT / ".env"
-    if _env_file.exists():
-        load_dotenv(_env_file)
-    else:
-        load_dotenv()
-except ImportError:
-    pass
-
-def _get_llm_project_id():
-    project = (
-        os.getenv("PROJECT_ID")
-        or os.getenv("GOOGLE_CLOUD_PROJECT")
-        or os.getenv("GOOGLE_CLOUD_PROJECT_ID")
-        or os.getenv("GCP_PROJECT")
-    )
-    if not project:
-        try:
-            import google.auth  # noqa: PLC0415
-
-            _, project = google.auth.default()
-        except Exception:
-            pass
-    return project
-
-
-def _get_llm_location():
-    return os.getenv("LOCATION") or os.getenv(
-        "GOOGLE_CLOUD_REGION", "us-central1"
-    )
-
-
 def _get_llm_model():
-    return os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
+    from invoice_processing.core.llm_client import get_sonnet_model_id  # noqa: PLC0415
+
+    return get_sonnet_model_id()
 
 
 def _get_llm_call_delay():
-    return float(os.getenv("API_CALL_DELAY_SECONDS", "1.0"))
+    return float(os.getenv("BEDROCK_CALL_DELAY_SECONDS", "0"))
 
 
 # ============================================================================
@@ -936,36 +904,27 @@ class LLMActionExecutor:
     5. Logs the full prompt/response for auditability
     """
 
-    _model = None  # Lazy-initialized Vertex AI model
+    _model = None  # Lazy-initialized Bedrock model
 
     @classmethod
     def _get_model(cls):
-        """Lazy-initialize the Vertex AI GenerativeModel."""
+        """Lazy-initialize the Bedrock GenerativeModel (heavy/Sonnet role)."""
         if cls._model is None:
             try:
-                from google.cloud import aiplatform  # noqa: PLC0415
-                from vertexai.generative_models import (  # noqa: PLC0415
+                from invoice_processing.core.llm_client import (  # noqa: PLC0415
                     GenerationConfig,
                     GenerativeModel,
                 )
 
-                if not _get_llm_project_id():
-                    raise ValueError(
-                        "PROJECT_ID not set. Export it or add to .env file."
-                    )
-                aiplatform.init(project=_get_llm_project_id(), location=_get_llm_location())
                 cls._model = GenerativeModel(
-                    _get_llm_model(),
+                    role="heavy",
                     generation_config=GenerationConfig(temperature=0),
                 )
-                logger.info(
-                    f"[LLM] Initialized {_get_llm_model()} "
-                    f"(project={_get_llm_project_id()}, location={_get_llm_location()})"
-                )
+                logger.info(f"[LLM] Initialized Bedrock model {cls._model.model_id}")
             except ImportError:
                 raise ImportError(
-                    "Vertex AI SDK required for LLM actions. Install with: "
-                    "pip install google-cloud-aiplatform"
+                    "boto3 required for LLM actions. Install with: "
+                    "pip install boto3"
                 ) from None
         return cls._model
 

@@ -1,36 +1,27 @@
 """
-Invoice Processing -- Unified ADK Agent: Inference + Learning
+Invoice Processing -- Inference pipeline orchestrator.
 
-A single LlmAgent that supports two modes:
-  1. Inference -- runs the full Acting -> Investigation -> ALF pipeline
-  2. Learning -- SME-driven rule review and creation
-
-Usage:
-    adk web agents/invoice_processing/invoice_processing
+Exposes ``run_inference`` (Acting -> Investigation -> ALF) and the learning
+helpers. The Dash app (see ``app.py``) calls these directly; there is no longer
+an ADK agent wrapper.
 """
 
 import json
-import shutil
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 
-# Resolve paths: agent.py -> invoice_processing/ (package root with data/ inside)
-AGENT_PKG_DIR = Path(__file__).resolve().parent
-DATA_DIR = AGENT_PKG_DIR / "data"
-EXEMPLARY_DIR = AGENT_PKG_DIR / "exemplary_data"
+from .core import storage
 
-# Project root for .env resolution
-PROJECT_ROOT = AGENT_PKG_DIR.parent.parent.parent
+# Data paths come from the storage abstraction (honors VOLUME_BASE).
+AGENT_PKG_DIR = storage.PACKAGE_DIR
+DATA_DIR = storage.DATA_DIR
+EXEMPLARY_DIR = storage.EXEMPLARY_DIR
+PROJECT_ROOT = storage.PROJECT_ROOT
 
 # Ensure invoice_processing package is importable
 sys.path.insert(0, str(AGENT_PKG_DIR.parent))
 
-from google.adk.agents import LlmAgent  # noqa: E402
-from google.genai import types  # noqa: E402
-
-from .prompt import INVOICE_PROCESSING_INSTRUCTION  # noqa: E402
 from .shared_libraries.acting.general_invoice_agent import (  # noqa: E402
     process_invoice,
 )
@@ -49,27 +40,6 @@ from .shared_libraries.investigation.investigate_agent_reconst import (  # noqa:
     investigate_agent_case,
     load_agent_case_data,
 )
-from .tools.tools import (  # noqa: E402
-    assess_impact,
-    build_rule_discovery_context,
-    build_rule_revision_context,
-    check_conflicts,
-    delete_rule,
-    discover_safe_rule,
-    format_rule_display,
-    get_existing_rules,
-    get_existing_scopes,
-    get_next_rule_id,
-    list_cases,
-    list_inference_cases,
-    load_case,
-    log_session_event,
-    revise_safe_rule,
-    save_session,
-    validate_rule,
-    write_rule,
-)
-
 # ============================================================================
 # Investigation lazy initialization
 # ============================================================================
@@ -150,12 +120,10 @@ def _run_acting_stage(case_id, stages):
         }
 
     # Clean up previous run output to avoid stale data
-    agent_output_dir = DATA_DIR / "agent_output" / case_id
-    alf_output_dir = DATA_DIR / "alf_output" / case_id
-    if agent_output_dir.exists():
-        shutil.rmtree(agent_output_dir)
-    if alf_output_dir.exists():
-        shutil.rmtree(alf_output_dir)
+    agent_output_dir = storage.AGENTIC_FLOW_OUT / case_id
+    alf_output_dir = storage.ALF_OUT_DIR / case_id
+    storage.rmtree(agent_output_dir)
+    storage.rmtree(alf_output_dir)
 
     try:
         acting_result = process_invoice(source_folder)
@@ -534,39 +502,3 @@ def run_inference(case_id: str, skip_investigation: str = "false") -> dict:
         total_stages,
         _skip_inv,
     )
-
-
-# ============================================================================
-# Root ADK Agent
-# ============================================================================
-
-root_agent = LlmAgent(
-    name="invoice_processing",
-    model="gemini-2.5-flash",
-    generate_content_config=types.GenerateContentConfig(temperature=0),
-    instruction=INVOICE_PROCESSING_INSTRUCTION,
-    tools=[
-        # Inference tools
-        list_inference_cases,
-        run_inference,
-        # Learning tools (primary)
-        list_cases,
-        load_case,
-        discover_safe_rule,
-        revise_safe_rule,
-        # Learning tools (manual)
-        assess_impact,
-        validate_rule,
-        check_conflicts,
-        write_rule,
-        delete_rule,
-        get_existing_rules,
-        get_existing_scopes,
-        format_rule_display,
-        get_next_rule_id,
-        build_rule_discovery_context,
-        build_rule_revision_context,
-        log_session_event,
-        save_session,
-    ],
-)

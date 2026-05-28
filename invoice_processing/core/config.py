@@ -1,31 +1,36 @@
 """
 Configuration for the Invoice Processing learning core.
 
-All paths resolved relative to this file's location.
-LLM config loaded from shared .env file.
+Data paths come from the storage abstraction (``core/storage.py``), which
+honors the ``VOLUME_BASE`` env var (Databricks Volumes) with a local-fs
+fallback. LLM config targets AWS Bedrock (see ``core/llm_client.py``).
 """
 
-import os
 import sys
-from pathlib import Path
+
+from . import storage
+from .llm_client import (
+    get_aws_region,
+    get_call_delay,
+    get_max_tokens,
+    get_sonnet_model_id,
+    model_id_for_role,
+)
 
 # ---------------------------------------------------------------------------
-# Directory layout
+# Directory layout (re-exported from the storage abstraction)
 # ---------------------------------------------------------------------------
 
-CORE_DIR = Path(__file__).parent  # invoice_processing/core/
-AGENT_PKG_DIR = CORE_DIR.parent  # invoice_processing/ (package root)
+AGENT_PKG_DIR = storage.PACKAGE_DIR  # invoice_processing/ (package root)
+CORE_DIR = AGENT_PKG_DIR / "core"
+PROJECT_ROOT = storage.PROJECT_ROOT
 
-# Data lives inside the agent package (self-contained)
-DATA_DIR = AGENT_PKG_DIR / "data"
-AGENTIC_FLOW_OUT = DATA_DIR / "agent_output"
-ALF_OUT_DIR = DATA_DIR / "alf_output"
-RULE_BASE_PATH = DATA_DIR / "rule_base.json"
-RULES_BOOK_PATH = DATA_DIR / "reconstructed_rules_book.md"
-SESSIONS_DIR = DATA_DIR / "learning_sessions"
-
-# Project root for .env resolution
-PROJECT_ROOT = AGENT_PKG_DIR.parent.parent.parent
+DATA_DIR = storage.DATA_DIR
+AGENTIC_FLOW_OUT = storage.AGENTIC_FLOW_OUT
+ALF_OUT_DIR = storage.ALF_OUT_DIR
+RULE_BASE_PATH = storage.RULE_BASE_PATH
+RULES_BOOK_PATH = storage.RULES_BOOK_PATH
+SESSIONS_DIR = storage.SESSIONS_DIR
 
 # Legacy aliases (for backward compatibility within modules)
 LEARNING_AGENT_DIR = AGENT_PKG_DIR
@@ -39,58 +44,33 @@ if _shared_libs_str not in sys.path:
     sys.path.insert(0, _shared_libs_str)
 
 # ---------------------------------------------------------------------------
-# .env loading
+# LLM configuration (AWS Bedrock; mirrors acting_agent / alf_engine.py)
 # ---------------------------------------------------------------------------
-
-ENV_PATH = PROJECT_ROOT / ".env"
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv(ENV_PATH)
-except ImportError:
-    pass  # dotenv not installed; assume env vars are set externally
-
-# ---------------------------------------------------------------------------
-# LLM configuration (mirrors acting_agent / alf_engine.py)
-# ---------------------------------------------------------------------------
-
-def get_llm_project_id():
-    """Return PROJECT_ID from env (deferred for Agent Engine compatibility).
-
-    Checks multiple env var names to match the inference path pattern
-    and falls back to google.auth.default() for Agent Engine containers.
-    """
-    project = (
-        os.getenv("PROJECT_ID")
-        or os.getenv("GOOGLE_CLOUD_PROJECT")
-        or os.getenv("GOOGLE_CLOUD_PROJECT_ID")
-        or os.getenv("GCP_PROJECT")
-    )
-    if not project:
-        try:
-            import google.auth  # noqa: PLC0415
-
-            _, project = google.auth.default()
-        except Exception:
-            pass
-    return project
-
-
-def get_llm_location():
-    """Return LOCATION from env (deferred for Agent Engine compatibility)."""
-    return os.getenv("LOCATION") or os.getenv(
-        "GOOGLE_CLOUD_REGION", "us-central1"
-    )
 
 
 def get_llm_model():
-    """Return GEMINI_PRO_MODEL from env (deferred for Agent Engine compatibility)."""
-    return os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
+    """Return the Bedrock model id for the heavy (reasoning) role."""
+    return get_sonnet_model_id()
+
+
+def get_llm_model_for_role(role: str = "heavy"):
+    """Return the Bedrock model id for a logical role ("fast" / "heavy")."""
+    return model_id_for_role(role)
+
+
+def get_llm_region():
+    """Return the configured AWS region for Bedrock."""
+    return get_aws_region()
 
 
 def get_llm_call_delay():
-    """Return API_CALL_DELAY_SECONDS from env (deferred for Agent Engine compatibility)."""
-    return float(os.getenv("API_CALL_DELAY_SECONDS", "1.0"))
+    """Return optional inter-call throttle delay in seconds (default 0)."""
+    return get_call_delay()
+
+
+def get_llm_max_tokens():
+    """Return the configured Bedrock max output tokens."""
+    return get_max_tokens()
 
 # ---------------------------------------------------------------------------
 # Master data loader (optional — provides domain-agnostic configuration)

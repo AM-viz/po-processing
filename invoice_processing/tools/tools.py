@@ -11,10 +11,12 @@ import re
 import sys
 from pathlib import Path
 
-# Resolve paths: tools.py -> tools/ -> invoice_processing/ (package root with data/ inside)
-AGENT_PKG_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = AGENT_PKG_DIR / "data"
-EXEMPLARY_DIR = AGENT_PKG_DIR / "exemplary_data"
+# Data paths come from the storage abstraction (honors VOLUME_BASE).
+from ..core import storage  # noqa: E402
+
+AGENT_PKG_DIR = storage.PACKAGE_DIR
+DATA_DIR = storage.DATA_DIR
+EXEMPLARY_DIR = storage.EXEMPLARY_DIR
 
 # Ensure invoice_processing package and shared_libraries are importable
 AGENT_ROOT = AGENT_PKG_DIR.parent  # invoice_processing/ (outer)
