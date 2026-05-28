@@ -1,8 +1,12 @@
-# Invoice Processing
+# PO Processing
 
-A unified ADK agent for document processing that combines an end-to-end inference pipeline with an interactive learning system for continuous improvement -- all in a single self-contained agent.
+A purchase-order (PO) document-processing application that combines an
+end-to-end inference pipeline with an interactive learning system for continuous
+improvement. It runs as a **Dash app** (deployable as a Databricks App), uses
+**AWS GovCloud Bedrock** (Anthropic Claude) for all inference, and stores its
+data on **Databricks Volumes**.
 
-**Current reference implementation:** Invoice Processing.
+**Current reference implementation:** Purchase Order processing.
 
 ## Overview & Functionalities
 
@@ -10,13 +14,14 @@ A unified ADK agent for document processing that combines an end-to-end inferenc
 
 | Property | Value |
 |----------|-------|
-| **Interaction Type** | Conversational |
+| **Interface** | Dash web app (Inference + Learning tabs) |
 | **Complexity** | Advanced |
-| **Agent Type** | Single Agent (dual-mode) |
+| **Agent Type** | Pipeline (Acting → Investigation → ALF) + learning mode |
 | **Vertical** | Finance / Document Processing |
-| **ADK Pattern** | `LlmAgent` + 18 `FunctionTools` |
-| **Model** | gemini-2.5-flash |
-| **Framework** | [Google Agent Development Kit (ADK)](https://google.github.io/adk-docs/) |
+| **Inference** | AWS Bedrock Converse API |
+| **Models** | Claude Sonnet (heavy reasoning) + Claude Haiku (fast extraction) |
+| **Storage** | Databricks Volumes (`VOLUME_BASE`), local-fs fallback for dev |
+| **Deployment** | Databricks App (`app.yaml`) |
 
 
 ### Key Features
@@ -40,7 +45,7 @@ A unified ADK agent for document processing that combines an end-to-end inferenc
 - **Layered corrections** -- deterministic rules first, LLM only when needed, human approval always
 - **Configuration over code** -- domain knowledge lives in `master_data.yaml`, not in source code
 - **Human governance** -- every correction rule requires SME review and approval
-- **Backward compatible** -- all components fall back to hardcoded invoice defaults when no master data is available
+- **Backward compatible** -- all components fall back to hardcoded PO defaults when no master data is available
 
 ### Tools
 
@@ -64,7 +69,7 @@ A unified ADK agent for document processing that combines an end-to-end inferenc
 ### Example Interaction: Inference Mode
 
 ```
-Agent: Welcome to Invoice Processing! Which mode would you like to work in?
+Agent: Welcome to PO Processing! Which mode would you like to work in?
        (1) Inference -- process cases, or (2) Learning -- review & create rules?
 
 You:   1
@@ -148,8 +153,8 @@ Agent: Generating rule via discover_safe_rule...
        Actions:
          1. set_field
             PO Processing.PO Status = "Pending Payment"
-            Invoice Processing.Rejection Reason = ""
-            Invoice Processing.Rejection Phase = ""
+            PO Processing.Rejection Reason = ""
+            PO Processing.Rejection Phase = ""
 
        Metadata:
          Root cause: Policy exception -- updated procurement policy
@@ -186,7 +191,7 @@ ALF rules handle **exceptions not covered by the rules book** -- not bugs in the
 
 ![Architecture Diagram](agent_pattern.png)
 
-The diagram above illustrates the three-zone architecture of the Invoice Processing agent:
+The diagram above illustrates the three-zone architecture of the PO Processing agent:
 
 - **Zone 1 -- The Constitution Architecture:** The Reconstructed Rules Book serves as the agent's "constitution" -- the single source of truth and transparency. It governs how both the Acting Agent and the Critic Agent (Investigation) behave, ensuring all decisions are traceable back to documented rules.
 
@@ -200,8 +205,8 @@ The diagram above illustrates the three-zone architecture of the Invoice Process
                        |
                        v
          +-------------------------------+
-         |          Invoice Processing   |
-         |    (single LlmAgent, 18 tools)|
+         |          PO Processing   |
+         |    (Acting → Investigation → ALF)|
          +-------------------------------+
          |                               |
     INFERENCE MODE              LEARNING MODE
@@ -241,8 +246,8 @@ The diagram above illustrates the three-zone architecture of the Invoice Process
 ```
 invoice-processing/
 ├── po_processing/                      # Python package (fully self-contained)
-│   ├── __init__.py                 # Exports root_agent
-│   ├── agent.py                    # LlmAgent + run_inference pipeline + root_agent
+│   ├── __init__.py                 # Exports run_inference
+│   ├── agent.py                    # run_inference pipeline orchestrator
 │   ├── prompt.py                   # Dual-mode instruction prompt
 │   ├── tools/
 │   │   └── tools.py               # 18 FunctionTools (inference + learning)
@@ -292,98 +297,86 @@ invoice-processing/
 ### Prerequisites
 
 - Python 3.10+
-- [uv](https://docs.astral.sh/uv/) for dependency management
-- Google Cloud project with Vertex AI API enabled
-- [Google ADK](https://google.github.io/adk-docs/)
-- GCP authentication configured
+- AWS GovCloud credentials with Bedrock model access for the configured Claude
+  Sonnet and Haiku model ids
+- (For deployment) A Databricks workspace with a Unity Catalog Volume and the
+  Databricks Apps feature
 
 ### Installation
 
 ```bash
-# Navigate to the agent directory
-cd agents/invoice-processing
-
-# Install dependencies using uv
-uv sync
+# Install dependencies
+pip install -e .            # or: uv sync
 
 # Copy and configure environment variables
-cp .env.example .env
-# Edit .env with your GCP project ID:
-#   PROJECT_ID=your-gcp-project-id
-#   LOCATION=us-central1
-
-# Authenticate with GCP
-gcloud auth application-default login
+cp po_processing/.env.example .env
+# Edit .env with your AWS region and Bedrock model ids (see below)
 ```
 
 ### Environment Variables
 
-See [`.env.example`](.env.example) for the full list. Key variables:
+See [`po_processing/.env.example`](po_processing/.env.example) for the full list.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PROJECT_ID` | (required) | GCP project ID |
-| `LOCATION` | `us-central1` | GCP region |
-| `GEMINI_FLASH_MODEL` | `gemini-2.5-flash` | Model for the ADK agent |
-| `GEMINI_PRO_MODEL` | `gemini-2.5-pro` | Model for ALF pipeline continuation and investigation |
-| `API_CALL_DELAY_SECONDS` | `1.0` | Rate limiting between API calls |
+| `AWS_REGION` | `us-gov-west-1` | AWS GovCloud region for Bedrock |
+| `BEDROCK_ENDPOINT_URL` | (auto) | Optional explicit Bedrock endpoint override |
+| `BEDROCK_SONNET_MODEL_ID` | Claude 3.5 Sonnet | Heavy-reasoning model id |
+| `BEDROCK_HAIKU_MODEL_ID` | Claude 3.5 Haiku | Fast extraction/judge model id |
+| `BEDROCK_MAX_TOKENS` | `8192` | Max output tokens per call |
+| `BEDROCK_MAX_RETRIES` | `5` | Adaptive + backoff retry attempts |
+| `BEDROCK_MAX_PDF_BYTES` | `4500000` | PDFs above this skip Bedrock → pdfplumber |
+| `VOLUME_BASE` | (unset) | Databricks Volume root; unset = local `data/` |
 
-### Running the Agent
+AWS credentials are resolved by boto3 from the environment / instance profile.
 
-```bash
-# Navigate back to the agents directory
-cd ..
-
-# Launch via ADK web UI
-adk web po_processing
-
-# Open http://127.0.0.1:8000 in your browser
-# Select "po_processing" from the app list
-```
-
-The agent will greet you with a mode selection prompt. Choose Inference to process cases or Learning to review and create rules.
-
-### Running via CLI
+### Running the App (local)
 
 ```bash
-# ADK CLI mode (non-interactive, run from agents directory)
-adk run po_processing
+# Leave VOLUME_BASE unset to use the package-local data/ directory
+python app.py
+# Open http://127.0.0.1:8050
 ```
+
+The app has two tabs:
+
+- **Inference** — select an existing case or upload a PDF, then run the
+  Acting → Investigation → ALF pipeline and view the decision, per-stage
+  detail, final output JSON, and run log.
+- **Learning** — load a processed case, discover a correction rule from SME
+  feedback, and manage (write / delete) the ALF rule base.
+
+### Deploying as a Databricks App
+
+See [`deployment/README.md`](deployment/README.md). In short: set `VOLUME_BASE`
+to your Volume path, provide AWS Bedrock credentials/model ids via Databricks
+secrets in [`app.yaml`](app.yaml), seed the Volume with `exemplary_data/`, and
+deploy. The app binds `0.0.0.0` on `DATABRICKS_APP_PORT`.
 
 ---
 
 ## Customization & Extension
 
-### Modifying the Agent Flow
+### Modifying the Pipeline & UI
 
 | What to change | Where |
 |----------------|-------|
-| Agent instructions and conversation behavior | [`po_processing/prompt.py`](po_processing/prompt.py) -- edit `INVOICE_PROCESSING_INSTRUCTION` |
 | Pipeline stages, gating logic, stage ordering | [`po_processing/agent.py`](po_processing/agent.py) -- edit `run_inference()` |
-| Which tools are available to the agent | [`po_processing/agent.py`](po_processing/agent.py) -- edit the `tools=[]` list in `root_agent` |
-| Model selection | [`po_processing/agent.py`](po_processing/agent.py) -- change `model=` parameter in `root_agent` |
+| Bedrock model selection / Converse request shape | [`po_processing/core/llm_client.py`](po_processing/core/llm_client.py) |
+| Data paths / storage backend | [`po_processing/core/storage.py`](po_processing/core/storage.py) |
+| Domain schema (fields, validation, output labels) | [`po_processing/shared_libraries/po_master_data.yaml`](po_processing/shared_libraries/po_master_data.yaml) |
+| UI layout and tabs | [`po_dash/layout.py`](po_dash/layout.py) |
+| UI behavior (run, upload, rule management) | [`po_dash/callbacks_inference.py`](po_dash/callbacks_inference.py), [`po_dash/callbacks_learning.py`](po_dash/callbacks_learning.py) |
 
-### Adding New Tools
+### Adding New Backend Functions
 
-1. Add your function to [`po_processing/tools/tools.py`](po_processing/tools/tools.py):
-   ```python
-   def my_new_tool(param: str) -> dict:
-       """Description shown to the LLM. Args documented here."""
-       # your logic
-       return {"result": "..."}
-   ```
+The pipeline (`run_inference`) and learning helpers in
+[`po_processing/tools/tools.py`](po_processing/tools/tools.py) are plain Python
+functions. To surface new behavior in the UI:
 
-2. Import and register it in [`po_processing/agent.py`](po_processing/agent.py):
-   ```python
-   from po_processing.tools.tools import my_new_tool
-
-   root_agent = LlmAgent(
-       ...
-       tools=[..., my_new_tool],
-   )
-   ```
-
-3. Update the prompt in [`po_processing/prompt.py`](po_processing/prompt.py) to tell the agent when and how to use the new tool.
+1. Add your function to `po_processing/tools/tools.py` (or another module).
+2. Import it in the relevant `po_dash/callbacks_*.py` and wire it to a Dash
+   `@app.callback` against the appropriate component ids in `po_dash/layout.py`.
 
 ### Changing Data Sources
 
@@ -415,7 +408,7 @@ The evaluation framework lives in [`eval/`](eval/) and provides schema-driven as
 | Layer | Type | Cost | Description |
 |-------|------|------|-------------|
 | **Layer 1: Deterministic** | Field-by-field comparison | Free | Compares agent output against ground truth using comparison groups defined in master data. Instant, reproducible, zero cost. |
-| **Layer 2: LLM-as-Judge** | Holistic alignment | ~1 API call/case | Single Gemini call per case producing an overall alignment verdict. Optional (`--skip-llm` to disable). |
+| **Layer 2: LLM-as-Judge** | Holistic alignment | ~1 API call/case | Single Bedrock (Claude Haiku) call per case producing an overall alignment verdict. Optional (`--skip-llm` to disable). |
 
 ### Metrics
 
@@ -460,115 +453,56 @@ Results are saved to `po_processing/data/eval_results/`.
 
 ## Deployment
 
-To deploy Invoice Processing to a cloud environment, follow the [ADK Samples Integration](https://github.com/google/agents-cli) instructions to deploy via Google Agents CLI.
-
-See [`deployment/README.md`](deployment/README.md) for details.
+Deploy as a **Databricks App** using [`app.yaml`](app.yaml). See
+[`deployment/README.md`](deployment/README.md) for step-by-step instructions and
+the cross-cloud (Databricks → AWS GovCloud Bedrock) prerequisites.
 
 ---
 
-## Production: GCS Integration
+## Production: Databricks Volumes
 
-In local development, all data lives inside the agent package (`po_processing/data/` and `po_processing/exemplary_data/`). For production deployment, these directories should be replaced with Google Cloud Storage (GCS) buckets so that:
-
-- **Incoming invoice cases** are read from a bucket where upstream systems or users upload PDFs
-- **Intermediate and final outputs** are written to a bucket for downstream consumption
-- **Rule base and rules book** are stored in a bucket accessible to SMEs for review and editing
-
-### Local vs Production Data Mapping
-
-| Local Path | GCS Bucket Path | Direction | Description |
-|-----------|-----------------|-----------|-------------|
-| `po_processing/exemplary_data/` | `gs://{BUCKET}/incoming_cases/` | Read | Invoice PDFs and supporting documents uploaded by users or upstream systems |
-| `po_processing/data/agent_output/` | `gs://{BUCKET}/agent_output/` | Write | Per-case intermediate artifacts (classification, extraction, validation, etc.) |
-| `po_processing/data/alf_output/` | `gs://{BUCKET}/alf_output/` | Write | ALF-corrected final outputs |
-| `po_processing/data/investigation_output/` | `gs://{BUCKET}/investigation_output/` | Write | Investigation compliance reports |
-| `po_processing/data/eval_results/` | `gs://{BUCKET}/eval_results/` | Write | Evaluation results |
-| `po_processing/data/learning_sessions/` | `gs://{BUCKET}/learning_sessions/` | Write | SME session logs |
-| `po_processing/data/rule_base.json` | `gs://{BUCKET}/config/rule_base.json` | Read/Write | ALF correction rules (user-facing) |
-| `po_processing/data/reconstructed_rules_book.md` | `gs://{BUCKET}/config/reconstructed_rules_book.md` | Read | Validation rules constitution (user-facing) |
-| `po_processing/data/rule_discovery_cache.json` | `gs://{BUCKET}/config/rule_discovery_cache.json` | Read/Write | Cached rule discovery results |
-
-### Recommended Bucket Structure
-
-```
-gs://your-invoice-processing-bucket/
-├── incoming_cases/                    # Upload invoices here
-│   ├── case_001/
-│   │   ├── invoice.pdf
-│   │   └── waf.pdf
-│   ├── case_002/
-│   │   └── invoice.pdf
-│   └── .../
-│
-├── agent_output/                      # Agent writes intermediate artifacts here
-│   ├── case_001/
-│   │   ├── 01_classification.json
-│   │   ├── 02_extraction.json
-│   │   ├── ...
-│   │   └── Postprocessing_Data.json
-│   └── .../
-│
-├── alf_output/                        # ALF writes corrected outputs here
-│   ├── case_001/
-│   │   ├── Postprocessing_Data.json
-│   │   └── alf_audit_log.json
-│   └── .../
-│
-├── investigation_output/              # Investigation reports
-├── eval_results/                      # Evaluation results
-├── learning_sessions/                 # SME session logs
-│
-└── config/                            # User-facing configuration files
-    ├── rule_base.json                 # SMEs review and approve rules here
-    ├── reconstructed_rules_book.md    # Validation rules (editable by admins)
-    └── rule_discovery_cache.json      # Cached rule discovery
-```
-
-### Required Environment Variables
-
-Add the following to `.env` for production GCS integration:
+In local development, all data lives inside the package (`po_processing/data/`
+and `po_processing/exemplary_data/`). In production, set `VOLUME_BASE` to a Unity
+Catalog Volume path and the entire data tree relocates there automatically — no
+code changes required. Path resolution and all file IO are centralized in
+[`po_processing/core/storage.py`](po_processing/core/storage.py); set
+`VOLUME_BASE` and every reader/writer follows.
 
 ```bash
-# GCS Integration (production mode)
-GCS_ENABLED=true
-GCS_BUCKET=your-invoice-processing-bucket
-GCS_INPUT_PREFIX=incoming_cases       # where incoming invoice cases are uploaded
-GCS_OUTPUT_PREFIX=agent_output        # where agent writes intermediate artifacts
-GCS_ALF_PREFIX=alf_output             # where ALF writes corrected outputs
-GCS_CONFIG_PREFIX=config              # where rule_base.json and rules_book.md live
+VOLUME_BASE=/Volumes/<catalog>/<schema>/<volume>
 ```
 
-### Code Changes Required for Production
+### Volume layout (mirrors the local layout)
 
-The following files need modification to support GCS I/O instead of local file paths:
+```
+/Volumes/<catalog>/<schema>/<volume>/
+├── exemplary_data/                    # Input cases (PDFs); uploads land here
+│   ├── case_001/{po.pdf, waf.pdf}
+│   └── .../
+├── data/
+│   ├── agent_output/{case_id}/...     # Per-case pipeline artifacts
+│   ├── alf_output/{case_id}/...       # ALF-corrected outputs
+│   ├── investigation_output/          # Investigation reports
+│   ├── eval_results/                  # Evaluation results
+│   ├── learning_sessions/             # SME session logs
+│   ├── rule_base.json                 # ALF correction rules (user-facing)
+│   ├── reconstructed_rules_book.md    # Validation rules constitution
+│   └── rule_discovery_cache.json      # Cached rule discovery
+```
 
-| File | What to Change |
-|------|----------------|
-| `po_processing/core/config.py` | Add GCS path resolution: when `GCS_ENABLED=true`, resolve `DATA_DIR`, `AGENTIC_FLOW_OUT`, `ALF_OUT_DIR`, `RULE_BASE_PATH`, `RULES_BOOK_PATH`, and `SESSIONS_DIR` to GCS paths instead of local paths |
-| `po_processing/agent.py` | Update `run_inference()` to read source cases from GCS (`gs://{BUCKET}/incoming_cases/{case_id}/`) and write outputs to GCS |
-| `po_processing/shared_libraries/acting/general_invoice_agent.py` | Replace local `OUTPUT_BASE_DIR` file I/O with GCS reads/writes using `google-cloud-storage` client |
-| `po_processing/shared_libraries/investigation/investigate_agent_reconst.py` | Update `AGENT_OUTPUT_DIR`, `INVESTIGATION_OUTPUT_DIR`, and `RULES_BOOK_PATH` to read from/write to GCS |
-| `po_processing/shared_libraries/alf_engine.py` | Update `ALF_OUT_DIR` and rule base loading to use GCS |
-| `po_processing/core/rule_writer.py` | Update `RULE_BASE_PATH` reads/writes and backup logic for GCS |
-| `po_processing/tools/tools.py` | Update `EXEMPLARY_DIR` and `DATA_DIR` to support GCS paths |
+Seed the Volume once by copying the shipped `exemplary_data/` (and an empty
+`data/` tree) into it. Because Databricks Volumes are POSIX-mounted, the standard
+`pathlib`/`open()` IO in `storage.py` works directly; swap the backend there if a
+non-POSIX store is ever needed.
 
-### User-Facing Files
-
-In production, the following files should be accessible to SMEs and administrators through the GCS bucket (or a UI built on top of it):
-
-| File | Audience | Access | Purpose |
-|------|----------|--------|---------|
-| `config/rule_base.json` | SMEs, Admins | Read/Write | Review, approve, and manually edit ALF correction rules |
-| `config/reconstructed_rules_book.md` | Admins | Read/Write | Update the validation rules constitution that the investigation layer validates against |
-| `alf_output/{case_id}/Postprocessing_Data.json` | AP Team | Read | Review ALF-corrected invoice decisions |
-| `agent_output/{case_id}/Postprocessing_Data.json` | AP Team | Read | Review original agent decisions before ALF correction |
-| `learning_sessions/*.json` | Admins | Read | Audit trail of SME rule creation sessions |
+> **Note:** the app is single-instance, so writes to shared files
+> (e.g. `rule_base.json`) are not locked.
 
 ---
 
 ## Sample Test Cases
 
-The agent ships with 5 sample invoice cases in `exemplary_data/`:
+The agent ships with sample purchase-order cases in `exemplary_data/`:
 
 | Case | Vendor | Total | Acting Decision | Phase | Scenario |
 |------|--------|-------|-----------------|-------|----------|

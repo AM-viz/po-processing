@@ -1,180 +1,72 @@
-# Deployment Guide
+# Deployment Guide — Databricks App
 
-Deploy an ADK agent to Agent Runtime and optionally register it on Gemini Enterprise.
-
-**Reference:** [Google Agents CLI](https://github.com/google/agents-cli)
-
----
+Deploy the PO Processing Dash app as a [Databricks App](https://docs.databricks.com/en/dev-tools/databricks-apps/index.html),
+backed by a Unity Catalog Volume for storage and AWS GovCloud Bedrock for inference.
 
 ## Prerequisites
 
-- Python 3.10+
-- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud` CLI)
-- A GCP project with Vertex AI API enabled
-- Python packages: `google-adk[vertexai]`, `python-dotenv`
-- (Optional) `google-agents-cli` — required only for Gemini Enterprise registration
+- A Databricks workspace with the **Apps** feature enabled.
+- A **Unity Catalog Volume** (`/Volumes/<catalog>/<schema>/<volume>`) that the
+  app's service principal can read and write.
+- **AWS GovCloud Bedrock access**:
+  - Network egress from the Databricks workspace to the GovCloud Bedrock
+    endpoint (and FIPS endpoints where required).
+  - IAM credentials (or a role) with `bedrock:InvokeModel` on the configured
+    Claude Sonnet and Haiku model ids, stored as Databricks secrets.
+  - Model access granted for those Claude models in the GovCloud account.
 
-```bash
-pip install "google-adk[vertexai]" python-dotenv
-```
+> **Validate Bedrock connectivity first.** Before deploying the app, run the
+> smoke test (below) from a notebook on the same cluster to isolate
+> network/IAM issues from the Dash layer.
 
----
+## 1. Seed the Volume
 
-## Step 1: Authenticate and set quota project
-
-```bash
-gcloud auth application-default login
-gcloud auth application-default set-quota-project <YOUR_PROJECT_ID>
-```
-
----
-
-## Step 2: Prepare the agent package
-
-Agent Runtime uploads only the agent directory (the folder containing `agent.py` and `__init__.py`).
-
-**Key requirements:**
-
-1. **`requirements.txt`** must exist **inside the agent package directory** (not the project root). Agent Runtime uses it to install dependencies in the container.
-2. **`.env`** file in the agent directory is auto-detected and deployed. Use it for runtime env vars (`PROJECT_ID`, `LOCATION`, etc.). Alternatively, use `--env_file` to point to a different file.
-3. **All imports must be relative** (e.g., `from .tools.tools import ...`). Agent Runtime renames the package directory during deployment, which breaks absolute imports.
-4. **Minimize the `data/` directory** — any files inside the agent package are uploaded. Remove runtime outputs (logs, cache, temp files) before deploying.
-5. **Environment variable access must be lazy** — Agent Runtime sets env vars *after* module import. Any `os.getenv()` calls at module level will return `None`. Use a lazy initialization pattern (call `os.getenv()` inside a function on first use, not at import time).
-
-### `.env` file template
-
-Create a `.env` file in the agent package directory:
-
-```bash
-GOOGLE_GENAI_USE_VERTEXAI=TRUE
-PROJECT_ID=<YOUR_PROJECT_ID>
-GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID>
-LOCATION=<YOUR_REGION>
-```
-
-> A `.env.example` is provided in the agent directory. Copy it to `.env` and fill in your values.
-
----
-
-## Step 3: Deploy to Agent Runtime
-
-```bash
-adk deploy agent_engine \
-  --project=<YOUR_PROJECT_ID> \
-  --region=<YOUR_REGION> \
-  --display_name="<AGENT_DISPLAY_NAME>" \
-  --description="<AGENT_DESCRIPTION>" \
-  <PATH_TO_AGENT_PACKAGE>
-```
-
-On success, the CLI outputs:
+Copy the shipped seed data into the Volume once:
 
 ```
-✅ Created agent engine: projects/<PROJECT_NUMBER>/locations/<REGION>/reasoningEngines/<RESOURCE_ID>
+exemplary_data/   ->  /Volumes/<catalog>/<schema>/<volume>/exemplary_data/
+data/             ->  /Volumes/<catalog>/<schema>/<volume>/data/
 ```
 
-**Save the `<RESOURCE_ID>`** — you need it for updates and Gemini Enterprise registration.
+(You can do this from a notebook with `dbutils.fs.cp(..., recurse=True)` or the
+Volumes UI.)
 
----
+## 2. Configure `app.yaml`
 
-## Step 4: Update an existing deployment
+Edit [`../app.yaml`](../app.yaml):
 
-To push changes without creating a new instance:
+- Set `VOLUME_BASE` to your Volume path.
+- Set `AWS_REGION` (e.g. `us-gov-west-1`).
+- Point `BEDROCK_SONNET_MODEL_ID`, `BEDROCK_HAIKU_MODEL_ID`,
+  `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` at Databricks secrets
+  (`valueFrom`).
 
-```bash
-adk deploy agent_engine \
-  --project=<YOUR_PROJECT_ID> \
-  --region=<YOUR_REGION> \
-  --agent_engine_id=<RESOURCE_ID> \
-  <PATH_TO_AGENT_PACKAGE>
+## 3. Deploy
+
+Use the Databricks CLI or the Apps UI to deploy the repository as an app. The
+entrypoint is `python app.py`, which binds `0.0.0.0` on the injected
+`DATABRICKS_APP_PORT`. The Flask handle (`server = app.server`) is also available
+for a custom gunicorn command if preferred.
+
+## Bedrock smoke test (run in a notebook first)
+
+```python
+import os
+os.environ["AWS_REGION"] = "us-gov-west-1"
+os.environ["BEDROCK_SONNET_MODEL_ID"] = "<sonnet-model-id>"
+os.environ["BEDROCK_HAIKU_MODEL_ID"] = "<haiku-model-id>"
+
+from po_processing.core.llm_client import GenerativeModel
+
+print(GenerativeModel(role="fast").generate_content("Reply with the word OK").text)
+print(GenerativeModel(role="heavy").generate_content("Reply with the word OK").text)
 ```
 
----
+If both print `OK`, credentials, region, endpoint, and model access are working.
 
-## Step 5: Register on Gemini Enterprise (optional)
+## Notes
 
-Requires `google-agents-cli`:
-
-```bash
-pip install google-agents-cli
-```
-
-### Option A: Interactive (recommended)
-
-```bash
-agents-cli publish gemini-enterprise
-```
-
-The CLI will:
-1. Auto-detect the Agent Runtime ID from `deployment_metadata.json`
-2. List available Gemini Enterprise apps in your project
-3. Fetch the agent's display name and description
-4. Register the agent as a tool in Gemini Enterprise
-5. Print a console link to view the registered agent
-
-### Option B: Non-interactive
-
-```bash
-ID="projects/<PROJECT_NUMBER>/locations/global/collections/default_collection/engines/<GE_APP_ID>" \
-AGENT_ENGINE_ID="projects/<PROJECT_NUMBER>/locations/<REGION>/reasoningEngines/<RESOURCE_ID>" \
-GEMINI_DISPLAY_NAME="<AGENT_DISPLAY_NAME>" \
-GEMINI_DESCRIPTION="<AGENT_DESCRIPTION>" \
-agents-cli publish gemini-enterprise
-```
-
-Find your Gemini Enterprise App ID in the Google Cloud Console under Gemini Enterprise settings.
-
----
-
-## Step 6: Verify
-
-1. **Console check:** Open the Gemini Enterprise console and confirm your agent appears as an available tool
-2. **Chat test:** Select the agent and send a test message
-3. **Logs:** If something goes wrong, check Agent Runtime logs:
-
-```bash
-gcloud logging read \
-  "resource.type=aiplatform.googleapis.com/ReasoningEngine" \
-  --project=<YOUR_PROJECT_ID> \
-  --limit=20 \
-  --format="table(timestamp,textPayload)"
-```
-
----
-
-## Updating configuration post-deployment
-
-When rules, data files, or agent instructions change:
-
-1. Update the relevant files in the agent package
-2. Re-deploy using the update command (Step 4)
-
-No need to re-register on Gemini Enterprise — the registration points to the Agent Runtime instance, which is updated in place.
-
----
-
-## Troubleshooting
-
-### "failed to start and cannot serve traffic"
-
-| Cause | Fix |
-|-------|-----|
-| Missing `requirements.txt` in agent dir | Add `requirements.txt` inside the agent package directory |
-| Missing env vars | Ensure `.env` exists in the agent dir with `PROJECT_ID` and `GOOGLE_CLOUD_PROJECT` |
-| Large package size | Remove runtime outputs from `data/` before deploying |
-| Absolute imports | Convert all imports to relative (`.` / `..`) — Agent Runtime renames the package |
-| Module-level `os.getenv()` | Defer env var reads to call time using lazy initialization |
-
-### ADC quota warning
-
-```bash
-gcloud auth application-default set-quota-project <YOUR_PROJECT_ID>
-```
-
----
-
-## Further Reading
-
-- [Google Agents CLI — Getting Started](https://github.com/google/agents-cli)
-- [Google Agents CLI — Deployment](https://github.com/google/agents-cli)
-- [ADK Deploy CLI Reference](https://google.github.io/adk-docs/deploy/agent-engine/)
+- The app is single-instance; writes to shared files (e.g. `rule_base.json`)
+  are not locked.
+- Large PDFs (above `BEDROCK_MAX_PDF_BYTES`) automatically fall back to
+  deterministic `pdfplumber` extraction instead of Bedrock document input.

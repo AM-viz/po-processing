@@ -34,7 +34,6 @@ Usage:
 
 import argparse
 import json
-import os
 import re
 import sys
 from datetime import datetime
@@ -44,18 +43,16 @@ from typing import Any, Optional
 # Optional LLM imports — only needed when --skip-llm is NOT set
 _LLM_AVAILABLE = False
 try:
-    from dotenv import load_dotenv
-    from google.cloud import aiplatform
-    from vertexai.generative_models import GenerativeModel
+    from po_processing.core.llm_client import GenerativeModel
 
     _LLM_AVAILABLE = True
 except ImportError:
     pass
 
-# Resolve: eval/ -> po_processing/ -> agents/ -> project root
+# Resolve: eval/ -> repo root (po_processing/ is a sibling package)
 SCRIPT_DIR = Path(__file__).resolve().parent
-AGENT_DIR = SCRIPT_DIR.parent
-PROJECT_ROOT = AGENT_DIR.parent.parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+AGENT_DIR = PROJECT_ROOT
 
 # Master data loader — provides domain-agnostic configuration
 sys.path.insert(0, str(AGENT_DIR / "po_processing" / "shared_libraries"))
@@ -72,28 +69,13 @@ DEFAULT_TOLERANCE = 0.02
 
 # LLM configuration (only used when LLM evaluation is enabled)
 def _init_llm() -> Optional["GenerativeModel"]:
-    """Initialize LLM model. Returns None if unavailable."""
+    """Initialize the Bedrock judge model (fast/Haiku role). None if unavailable."""
     if not _LLM_AVAILABLE:
         return None
-
-    # Load .env from project root
-    env_file = PROJECT_ROOT / ".env"
-    if not env_file.exists():
-        env_file = SCRIPT_DIR / ".env"
-    if env_file.exists():
-        load_dotenv(env_file)
-    else:
-        load_dotenv()
-
-    project_id = os.getenv("PROJECT_ID")
-    location = os.getenv("LOCATION", "us-central1")
-    model_name = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
-
-    if not project_id:
+    try:
+        return GenerativeModel(role="fast")
+    except Exception:
         return None
-
-    aiplatform.init(project=project_id, location=location)
-    return GenerativeModel(model_name)
 
 
 # Hardcoded fallback — used only when no master data is provided
@@ -1434,7 +1416,7 @@ def main():
                 "Running deterministic only."
             )
             print(
-                "  Install: pip install google-cloud-aiplatform python-dotenv"
+                "  Install: pip install boto3 python-dotenv"
             )
 
     domain_name = master.display_name if master else "PO Processing"
