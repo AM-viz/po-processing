@@ -1,0 +1,31 @@
+# Databricks App configuration.
+#
+# Deploy with the Databricks CLI / Apps UI. The app binds 0.0.0.0 on the port
+# Databricks injects via DATABRICKS_APP_PORT. AWS GovCloud Bedrock credentials
+# and the Volume path are supplied via env vars / Databricks secrets.
+#
+# Prerequisites (validate before deploying):
+#   * A Unity Catalog Volume exists and the app's service principal can
+#     read/write it; set VOLUME_BASE to /Volumes/<catalog>/<schema>/<volume>.
+#   * The app can reach AWS GovCloud Bedrock (network egress + IAM) and the
+#     Claude model ids below have been granted model access in that account.
+#   * Seed the Volume with the exemplary_data/ cases (and an empty data/ tree)
+#     on first run.
+
+command: ["python", "app.py"]
+
+env:
+  - name: VOLUME_BASE
+    value: "/Volumes/main/po_processing/app_data"
+  - name: AWS_REGION
+    value: "us-gov-west-1"
+  - name: BEDROCK_SONNET_MODEL_ID
+    valueFrom: "bedrock-sonnet-model-id"
+  - name: BEDROCK_HAIKU_MODEL_ID
+    valueFrom: "bedrock-haiku-model-id"
+  - name: AWS_ACCESS_KEY_ID
+    valueFrom: "aws-access-key-id"
+  - name: AWS_SECRET_ACCESS_KEY
+    valueFrom: "aws-secret-access-key"
+  - name: BEDROCK_MAX_TOKENS
+    value: "8192"

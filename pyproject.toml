@@ -1,7 +1,45 @@
 [project]
-name = "google-adk-samples"
-version = "0.1.0"
+name = "po-processing"
+version = "1.0.0"
+description = "PO Processing -- inference and learning agent for purchase-order documents (AWS Bedrock + Dash on Databricks)"
 requires-python = ">=3.10"
+license = "Apache-2.0"
+keywords = ['agent', 'bedrock', 'dash', 'databricks']
+readme = "README.md"
+
+dependencies = [
+    "boto3>=1.34",
+    "dash>=2.17",
+    "plotly>=5.22",
+    "pydantic>=2.8.0",
+    "pdfplumber>=0.10.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    # Background callbacks for the long-running inference pipeline.
+    "diskcache>=5.6",
+    "multiprocess>=0.70",
+    "psutil>=5.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["po_processing", "po_dash"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.9",
+    "pytest>=8.0",
+    # Serve the Dash app under a production WSGI server.
+    "gunicorn>=22.0",
+]
+
+[[tool.uv.index]]
+name = "default"
+url = "https://pypi.org/simple"
+default = true
 
 [tool.ruff]
 line-length = 80
@@ -24,14 +62,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Global rule: ADK agents use __init__.py to expose their logic
 "**/__init__.py" = ["F401"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-
-[tool.codespell]
-ignore-words-list = "rouge"
-skip = "./locust_env/*,uv.lock,.venv,./frontend,**/*.ipynb"
-
